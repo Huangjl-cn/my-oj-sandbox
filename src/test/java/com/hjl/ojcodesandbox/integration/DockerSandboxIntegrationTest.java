@@ -1,0 +1,320 @@
+package com.hjl.ojcodesandbox.integration;
+
+import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
+import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
+import com.hjl.ojcodesandbox.model.ExecuteStatusEnum;
+import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
+import com.hjl.ojcodesandbox.sandbox.docker.DockerExecutionEngine;
+import com.hjl.ojcodesandbox.sandbox.language.DockerLanguageDefinition;
+import com.hjl.ojcodesandbox.sandbox.result.SandboxExecutionResult;
+import com.hjl.ojcodesandbox.sandbox.result.SandboxFailureType;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * 在 Linux Docker 环境中验证五种语言的真实 HTTP 执行链路。
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@EnabledIfEnvironmentVariable(named = "RUN_DOCKER_TESTS", matches = "true")
+class DockerSandboxIntegrationTest {
+
+    private static final String AUTH_HEADER = "auth";
+
+    private static final String AUTH_SECRET = "secretKey";
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @Autowired
+    private DockerExecutionEngine executionEngine;
+
+    /**
+     * 验证五种语言均能按输入顺序返回真实运行输出。
+     *
+     * @param language 请求语言
+     * @param code 可执行源代码
+     */
+    @ParameterizedTest(name = "{0} executes successfully")
+    @MethodSource("successfulPrograms")
+    void executesEverySupportedLanguage(String language, String code) {
+        ExecuteCodeResponse response = execute(language, code, Arrays.asList("1 2", "3 4"));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Arrays.asList("3", "7"), response.getOutputList());
+        assertNotNull(response.getJudgeInfo());
+        assertTrue(response.getJudgeInfo().getMemory() >= 0L);
+        assertTrue(response.getJudgeInfo().getTime() >= 0L);
+    }
+
+    /**
+     * 验证五种语言的语法或编译错误均返回源码定位。
+     *
+     * @param language 请求语言
+     * @param code 包含编译错误的源代码
+     * @param sourceFileName 预期出现的源文件名
+     */
+    @ParameterizedTest(name = "{0} reports compile diagnostics")
+    @MethodSource("compileErrorPrograms")
+    void reportsCompileErrorsForEveryLanguage(String language, String code, String sourceFileName) {
+        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(""));
+
+        assertEquals(ExecuteStatusEnum.COMPILE_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getOutputList().isEmpty());
+        assertTrue(response.getJudgeInfo().getMessage().startsWith("Compile Error"));
+        assertTrue(response.getJudgeInfo().getMessage().contains(sourceFileName));
+    }
+
+    /**
+     * 验证五种语言的非零退出均返回运行错误诊断。
+     *
+     * @param language 请求语言
+     * @param code 运行时失败的源代码
+     */
+    @ParameterizedTest(name = "{0} reports runtime diagnostics")
+    @MethodSource("runtimeErrorPrograms")
+    void reportsRuntimeErrorsForEveryLanguage(String language, String code) {
+        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(""));
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
+        assertTrue(response.getJudgeInfo().getMessage().length() > "Runtime Error".length());
+    }
+
+    /**
+     * 验证无限循环会在沙箱硬超时内被终止。
+     */
+    @Test
+    void terminatesTimedOutProgram() {
+        ExecuteCodeResponse response = execute(
+                "javascript",
+                "while (true) {}",
+                Collections.singletonList("")
+        );
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getJudgeInfo().getMessage().contains("Time Limit Exceeded"));
+        assertTrue(response.getJudgeInfo().getTime() >= 4_000L);
+    }
+
+    /**
+     * 验证运行失败后不会为未执行用例补充输出占位值。
+     */
+    @Test
+    void stopsAfterRuntimeFailureWithoutPaddingOutputs() {
+        String code = "import sys\n"
+                + "value = int(sys.argv[1])\n"
+                + "if value == 2:\n"
+                + "    raise RuntimeError('stop')\n"
+                + "print(value)";
+
+        ExecuteCodeResponse response = execute("python", code, Arrays.asList("1", "2", "3"));
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertEquals(2, response.getOutputList().size());
+        assertEquals("1", response.getOutputList().get(0));
+    }
+
+    /**
+     * 验证资源统计以 KB 和 ms 返回合理的非零数值。
+     */
+    @Test
+    void reportsMemoryInKilobytesAndTimeInMilliseconds() {
+        String code = "import sys, time\n"
+                + "data = bytearray(int(sys.argv[1]) * 1024 * 1024)\n"
+                + "time.sleep(1.5)\n"
+                + "print(len(data))";
+
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList("16"));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Collections.singletonList("16777216"), response.getOutputList());
+        assertTrue(response.getJudgeInfo().getMemory() >= 8L * 1024L);
+        assertTrue(response.getJudgeInfo().getTime() >= 1_000L);
+    }
+
+    /**
+     * 验证 Docker 镜像不存在时返回沙箱系统错误。
+     */
+    @Test
+    void reportsMissingImageAsSystemError() {
+        DockerLanguageDefinition definition = new DockerLanguageDefinition(
+                QuestionSubmitLanguageEnum.JAVA,
+                "oj-code-sandbox/missing-image:integration-test",
+                "Main.java",
+                new String[]{"javac", "Main.java"},
+                new String[]{"java", "Main"}
+        );
+        ExecuteCodeRequest request = ExecuteCodeRequest.builder()
+                .code("public class Main {}")
+                .language("java")
+                .inputList(Collections.emptyList())
+                .build();
+
+        SandboxExecutionResult result = executionEngine.execute(request, definition);
+
+        assertEquals(SandboxFailureType.SYSTEM_ERROR, result.getFailureType());
+        assertTrue(result.getDiagnostic().contains("Required Docker image is unavailable"));
+    }
+
+    /**
+     * 验证编译命令超过阶段上限时返回编译超时。
+     */
+    @Test
+    void terminatesTimedOutCompilation() {
+        DockerLanguageDefinition definition = new DockerLanguageDefinition(
+                QuestionSubmitLanguageEnum.PYTHON,
+                "python:3.14-alpine",
+                "main.py",
+                new String[]{"sh", "-c", "sleep 11"},
+                new String[]{"python", "main.py"}
+        );
+        ExecuteCodeRequest request = ExecuteCodeRequest.builder()
+                .code("print('ok')")
+                .language("python")
+                .inputList(Collections.singletonList(""))
+                .build();
+
+        SandboxExecutionResult result = executionEngine.execute(request, definition);
+
+        assertEquals(SandboxFailureType.COMPILE_ERROR, result.getFailureType());
+        assertTrue(result.getDiagnostic().contains("Compilation timed out"));
+    }
+
+    /**
+     * 验证程序输出超过一 MiB 时终止执行并返回输出上限错误。
+     */
+    @Test
+    void enforcesOutputLimit() {
+        String code = "import sys\nsys.stdout.write('x' * (1024 * 1024 + 1024))";
+
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getJudgeInfo().getMessage().contains("Output Limit Exceeded"));
+    }
+
+    /**
+     * 验证执行容器不能访问外部网络。
+     */
+    @Test
+    void blocksExternalNetworkAccess() {
+        String code = "import socket\nsocket.create_connection(('1.1.1.1', 53), timeout=1)";
+
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
+    }
+
+    /**
+     * 验证容器根文件系统保持只读。
+     */
+    @Test
+    void keepsContainerRootFilesystemReadOnly() {
+        String code = "with open('/sandbox-write-test', 'w') as file:\n    file.write('blocked')";
+
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+
+        assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
+        assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
+    }
+
+    /**
+     * 通过真实 HTTP 接口执行代码并返回响应体。
+     *
+     * @param language 请求语言
+     * @param code 用户源代码
+     * @param inputList argv 输入列表
+     * @return 代码执行响应
+     */
+    private ExecuteCodeResponse execute(String language, String code, java.util.List<String> inputList) {
+        ExecuteCodeRequest request = ExecuteCodeRequest.builder()
+                .language(language)
+                .code(code)
+                .inputList(inputList)
+                .build();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set(AUTH_HEADER, AUTH_SECRET);
+
+        ResponseEntity<ExecuteCodeResponse> response = restTemplate.postForEntity(
+                "/executeCode",
+                new HttpEntity<>(request, headers),
+                ExecuteCodeResponse.class
+        );
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        return response.getBody();
+    }
+
+    /**
+     * 提供五种语言的加法程序。
+     *
+     * @return 成功程序参数
+     */
+    private static Stream<Arguments> successfulPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { "
+                        + "System.out.print(Integer.parseInt(args[0]) + Integer.parseInt(args[1])); } }"),
+                Arguments.of("cpp", "#include <cstdlib>\n#include <iostream>\n"
+                        + "int main(int argc, char* argv[]) { std::cout << std::atoi(argv[1]) + std::atoi(argv[2]); }"),
+                Arguments.of("go", "package main\nimport (\n\"fmt\"\n\"os\"\n\"strconv\"\n)\n"
+                        + "func main() { a, _ := strconv.Atoi(os.Args[1]); b, _ := strconv.Atoi(os.Args[2]); "
+                        + "fmt.Print(a + b) }"),
+                Arguments.of("python", "import sys\nprint(int(sys.argv[1]) + int(sys.argv[2]))"),
+                Arguments.of("javascript", "console.log(Number(process.argv[2]) + Number(process.argv[3]));")
+        );
+    }
+
+    /**
+     * 提供五种语言的编译错误程序。
+     *
+     * @return 编译错误程序参数
+     */
+    private static Stream<Arguments> compileErrorPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { int value = } }",
+                        "Main.java"),
+                Arguments.of("cpp", "int main() { return }", "main.cpp"),
+                Arguments.of("go", "package main\nfunc main( {", "main.go"),
+                Arguments.of("python", "def main(:\n    pass", "main.py"),
+                Arguments.of("javascript", "const value = ;", "main.js")
+        );
+    }
+
+    /**
+     * 提供五种语言的运行错误程序。
+     *
+     * @return 运行错误程序参数
+     */
+    private static Stream<Arguments> runtimeErrorPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { "
+                        + "throw new RuntimeException(\"boom\"); } }"),
+                Arguments.of("cpp", "int main() { return 7; }"),
+                Arguments.of("go", "package main\nfunc main() { panic(\"boom\") }"),
+                Arguments.of("python", "raise RuntimeError('boom')"),
+                Arguments.of("javascript", "throw new Error('boom');")
+        );
+    }
+}
