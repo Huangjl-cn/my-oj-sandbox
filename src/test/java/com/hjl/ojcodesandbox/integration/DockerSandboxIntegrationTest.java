@@ -116,8 +116,8 @@ class DockerSandboxIntegrationTest {
         );
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
-        assertTrue(response.getJudgeInfo().getMessage().contains("Time Limit Exceeded"));
-        assertTrue(response.getJudgeInfo().getTime() >= 4_000L);
+        assertTrue(response.getJudgeInfo().getMessage().contains("Execution timed out after 8000 ms"));
+        assertTrue(response.getJudgeInfo().getTime() >= 7_000L);
     }
 
     /**
@@ -139,6 +139,32 @@ class DockerSandboxIntegrationTest {
     }
 
     /**
+     * 验证用例结束后后台子进程和临时文件不会影响下一个用例。
+     */
+    @Test
+    void isolatesProcessesAndTemporaryFilesBetweenInputs() {
+        String code = "import os, subprocess, sys, time\n"
+                + "if sys.argv[1] == 'first':\n"
+                + "    subprocess.Popen(['sh', '-c', 'sleep 1; touch /tmp/leaked'], "
+                + "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)\n"
+                + "    open('/tmp/marker', 'w').close()\n"
+                + "    try:\n"
+                + "        open('/app/work-marker', 'w').close()\n"
+                + "    except OSError:\n"
+                + "        pass\n"
+                + "    print('first')\n"
+                + "else:\n"
+                + "    time.sleep(1.5)\n"
+                + "    print(os.path.exists('/tmp/marker') or os.path.exists('/tmp/leaked') "
+                + "or os.path.exists('/app/work-marker'))";
+
+        ExecuteCodeResponse response = execute("python", code, Arrays.asList("first", "second"));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Arrays.asList("first", "False"), response.getOutputList());
+    }
+
+    /**
      * 验证资源统计以 KB 和 ms 返回合理的非零数值。
      */
     @Test
@@ -154,6 +180,33 @@ class DockerSandboxIntegrationTest {
         assertEquals(Collections.singletonList("16777216"), response.getOutputList());
         assertTrue(response.getJudgeInfo().getMemory() >= 8L * 1024L);
         assertTrue(response.getJudgeInfo().getTime() >= 1_000L);
+    }
+
+    /**
+     * 验证编译阶段的高内存占用不会进入运行阶段峰值。
+     */
+    @Test
+    void excludesCompilationMemoryFromRunPeak() {
+        DockerLanguageDefinition definition = new DockerLanguageDefinition(
+                QuestionSubmitLanguageEnum.PYTHON,
+                "python:3.14-alpine",
+                "main.py",
+                new String[]{"python", "-c",
+                        "import time; data = bytearray(96 * 1024 * 1024); time.sleep(0.2)"},
+                new String[]{"python", "main.py"}
+        );
+        ExecuteCodeRequest request = ExecuteCodeRequest.builder()
+                .code("print('ok')")
+                .language("python")
+                .inputList(Collections.singletonList(""))
+                .build();
+
+        SandboxExecutionResult result = executionEngine.execute(request, definition);
+
+        assertEquals(SandboxFailureType.NONE, result.getFailureType());
+        assertEquals(Collections.singletonList("ok"), result.getOutputList());
+        assertTrue(result.getMaxMemoryKb() > 0L);
+        assertTrue(result.getMaxMemoryKb() < 80L * 1024L);
     }
 
     /**

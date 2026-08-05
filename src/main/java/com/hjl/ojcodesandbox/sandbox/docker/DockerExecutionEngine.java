@@ -8,10 +8,7 @@ import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.command.StatsCmd;
 import com.github.dockerjava.api.exception.NotFoundException;
-import com.github.dockerjava.api.model.Bind;
-import com.github.dockerjava.api.model.HostConfig;
-import com.github.dockerjava.api.model.Statistics;
-import com.github.dockerjava.api.model.Volume;
+import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
@@ -24,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -54,11 +52,18 @@ public class DockerExecutionEngine {
 
     private static final long COMPILE_TIMEOUT_MILLIS = 10_000L;
 
-    private static final long RUN_TIMEOUT_MILLIS = 5_000L;
+    private static final long RUN_TIMEOUT_MILLIS = 8_000L;
 
-    private static final long REQUEST_TIMEOUT_MILLIS = 25_000L;
+    private static final long CGROUP_READ_TIMEOUT_MILLIS = 1_000L;
 
     private static final int OUTPUT_LIMIT_BYTES = 1024 * 1024;
+
+    private static final String READ_CGROUP_MEMORY_PEAK_COMMAND =
+            "if [ -r /sys/fs/cgroup/memory.peak ]; then cat /sys/fs/cgroup/memory.peak; "
+                    + "elif [ -r /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then "
+                    + "cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes; "
+                    + "elif [ -r /sys/fs/cgroup/memory.max_usage_in_bytes ]; then "
+                    + "cat /sys/fs/cgroup/memory.max_usage_in_bytes; fi";
 
     /**
      * 为一次请求创建容器，编译一次代码并按输入顺序逐个运行。
@@ -69,31 +74,28 @@ public class DockerExecutionEngine {
      */
     public SandboxExecutionResult execute(ExecuteCodeRequest request,
                                           DockerLanguageDefinition languageDefinition) {
-        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(REQUEST_TIMEOUT_MILLIS);
         File sourceFile = null;
         DockerClient dockerClient = null;
-        String containerId = null;
+        String compileContainerId = null;
+        String runContainerId = null;
 
         try {
-            // 每个请求使用独立工作目录和容器，避免不同请求之间共享文件。
+            // 编译容器与运行容器共享请求目录，但使用不同 cgroup 隔离资源统计。
             sourceFile = saveSourceCode(request.getCode(), languageDefinition.getSourceFileName());
             dockerClient = createDockerClient();
-            containerId = createContainer(dockerClient, sourceFile.getParentFile(), languageDefinition);
-            dockerClient.startContainerCmd(containerId).exec();
-
-            long compileTimeout = remainingTimeout(deadlineNanos, COMPILE_TIMEOUT_MILLIS);
-            if (compileTimeout <= 0) {
-                return compileFailure(new ArrayList<>(), "Compilation timed out", languageDefinition, 0L, 0L);
-            }
+            compileContainerId = createContainer(
+                    dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.rw);
+            dockerClient.startContainerCmd(compileContainerId).exec();
 
             DockerCommandResult compileResult = executeCommand(
                     dockerClient,
-                    containerId,
+                    compileContainerId,
                     languageDefinition.getCompileCommand(),
-                    compileTimeout
+                    COMPILE_TIMEOUT_MILLIS
             );
             if (compileResult.isTimedOut()) {
-                return compileFailure(new ArrayList<>(), "Compilation timed out after " + compileTimeout + " ms",
+                return compileFailure(new ArrayList<>(),
+                        "Compilation timed out after " + COMPILE_TIMEOUT_MILLIS + " ms",
                         languageDefinition, compileResult.getMemoryKb(), compileResult.getTimeMillis());
             }
             if (compileResult.getExitCode() == null) {
@@ -103,31 +105,37 @@ public class DockerExecutionEngine {
                 return compileFailure(new ArrayList<>(), diagnosticOf(compileResult), languageDefinition,
                         compileResult.getMemoryKb(), compileResult.getTimeMillis());
             }
+            removeContainer(dockerClient, compileContainerId);
+            compileContainerId = null;
 
             List<String> outputs = new ArrayList<>();
             long maxMemoryKb = 0L;
             long maxTimeMillis = 0L;
             List<String> inputList = request.getInputList();
-            // 编译产物在同一容器内复用，每个输入启动一个独立 exec 进程。
+            if (!inputList.isEmpty()) {
+                runContainerId = createContainer(
+                        dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.ro);
+            }
+            // 每个用例重启同一运行容器，重置 cgroup 和临时文件并清除残留子进程。
             for (String input : inputList) {
-                long runTimeout = remainingTimeout(deadlineNanos, RUN_TIMEOUT_MILLIS);
-                if (runTimeout <= 0) {
-                    return runtimeFailure(outputs, "Request time limit exceeded", languageDefinition,
-                            maxMemoryKb, maxTimeMillis);
+                dockerClient.startContainerCmd(runContainerId).exec();
+                DockerCommandResult runResult;
+                try {
+                    runResult = executeCommand(
+                            dockerClient,
+                            runContainerId,
+                            languageDefinition.getRunCommand(input),
+                            RUN_TIMEOUT_MILLIS
+                    );
+                } finally {
+                    killContainer(dockerClient, runContainerId);
                 }
-
-                DockerCommandResult runResult = executeCommand(
-                        dockerClient,
-                        containerId,
-                        languageDefinition.getRunCommand(input),
-                        runTimeout
-                );
                 maxMemoryKb = Math.max(maxMemoryKb, runResult.getMemoryKb());
                 maxTimeMillis = Math.max(maxTimeMillis, runResult.getTimeMillis());
                 outputs.add(normalizeOutput(runResult.getStandardOutput()));
 
                 if (runResult.isTimedOut()) {
-                    return runtimeFailure(outputs, "Time Limit Exceeded after " + runTimeout + " ms",
+                    return runtimeFailure(outputs, "Execution timed out after " + RUN_TIMEOUT_MILLIS + " ms",
                             languageDefinition, maxMemoryKb, maxTimeMillis);
                 }
                 if (runResult.isOutputTruncated()) {
@@ -151,7 +159,8 @@ public class DockerExecutionEngine {
             log.error("Docker sandbox execution failed for language={}", languageDefinition.getLanguage().getValue(), e);
             return systemFailure(new ArrayList<>(), "Docker sandbox execution failed");
         } finally {
-            removeContainer(dockerClient, containerId);
+            removeContainer(dockerClient, runContainerId);
+            removeContainer(dockerClient, compileContainerId);
             closeDockerClient(dockerClient);
             deleteWorkingDirectory(sourceFile);
         }
@@ -198,25 +207,27 @@ public class DockerExecutionEngine {
      * @param dockerClient       Docker 客户端
      * @param workingDirectory   本次请求的工作目录
      * @param languageDefinition 语言执行定义
+     * @param accessMode         工作目录挂载权限
      * @return 容器 ID
      */
     private String createContainer(DockerClient dockerClient, File workingDirectory,
-                                   DockerLanguageDefinition languageDefinition) {
+                                   DockerLanguageDefinition languageDefinition, AccessMode accessMode) {
         HostConfig hostConfig = HostConfig.newHostConfig()
                 .withMemory(MEMORY_LIMIT_BYTES)
                 .withMemorySwap(MEMORY_LIMIT_BYTES)
                 .withNanoCPUs(CPU_LIMIT)
                 .withPidsLimit(PID_LIMIT)
                 .withReadonlyRootfs(true)
-                .withBinds(new Bind(workingDirectory.getAbsolutePath(), new Volume(CONTAINER_WORK_DIR)))
+                .withBinds(new Bind(
+                        workingDirectory.getAbsolutePath(), new Volume(CONTAINER_WORK_DIR), accessMode))
                 .withTmpFs(Collections.singletonMap("/tmp", "rw,nosuid,nodev,size=64m"));
 
         CreateContainerResponse response = dockerClient.createContainerCmd(languageDefinition.getImage())
                 .withHostConfig(hostConfig)
                 .withNetworkDisabled(true)
                 .withWorkingDir(CONTAINER_WORK_DIR)
-                .withEntrypoint("/bin/sh")
-                .withCmd("-c", "while true; do sleep 3600; done")
+                .withEntrypoint("/bin/sleep")
+                .withCmd("2147483647")
                 .withEnv(languageDefinition.getEnvironment())
                 .withTty(false)
                 .exec();
@@ -251,11 +262,15 @@ public class DockerExecutionEngine {
         statsCollector.awaitFirstSample();
         long startedAt = System.nanoTime();
         boolean completed;
+        long timeMillis;
+        long cgroupPeakMemoryBytes = 0L;
 
         try {
             completed = dockerClient.execStartCmd(exec.getId())
                     .exec(callback)
                     .awaitCompletion(timeoutMillis, TimeUnit.MILLISECONDS);
+            timeMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            cgroupPeakMemoryBytes = readCgroupPeakMemoryBytes(dockerClient, containerId);
         } finally {
             try {
                 callback.close();
@@ -264,16 +279,51 @@ public class DockerExecutionEngine {
             }
         }
 
-        long timeMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        long memoryKb = Math.max(statsCollector.getMaxMemoryBytes(), cgroupPeakMemoryBytes) / 1024L;
         if (!completed) {
-            killContainer(dockerClient, containerId);
             return new DockerCommandResult(null, toUtf8(stdout), toUtf8(stderr), timeMillis,
-                    statsCollector.getMaxMemoryKb(), true, stdout.isTruncated() || stderr.isTruncated());
+                    memoryKb, true, stdout.isTruncated() || stderr.isTruncated());
         }
 
         Long exitCode = dockerClient.inspectExecCmd(exec.getId()).exec().getExitCodeLong();
         return new DockerCommandResult(exitCode, toUtf8(stdout), toUtf8(stderr), timeMillis,
-                statsCollector.getMaxMemoryKb(), false, stdout.isTruncated() || stderr.isTruncated());
+                memoryKb, false, stdout.isTruncated() || stderr.isTruncated());
+    }
+
+    /**
+     * 读取当前容器 cgroup 生命周期内的内存峰值。
+     *
+     * @param dockerClient Docker 客户端
+     * @param containerId  容器 ID
+     * @return 内存峰值，单位字节；无法读取时返回 0
+     */
+    private long readCgroupPeakMemoryBytes(DockerClient dockerClient, String containerId) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ExecStartResultCallback callback = new ExecStartResultCallback(output, new ByteArrayOutputStream());
+        try {
+            ExecCreateCmdResponse exec = dockerClient.execCreateCmd(containerId)
+                    .withCmd("/bin/sh", "-c", READ_CGROUP_MEMORY_PEAK_COMMAND)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .exec();
+            boolean completed = dockerClient.execStartCmd(exec.getId())
+                    .exec(callback)
+                    .awaitCompletion(CGROUP_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            if (!completed) {
+                return 0L;
+            }
+            String peakBytes = output.toString(StandardCharsets.UTF_8.name()).trim();
+            return StrUtil.isBlank(peakBytes) ? 0L : Long.parseLong(peakBytes);
+        } catch (Exception e) {
+            log.debug("Unable to read cgroup peak memory for container={}", containerId, e);
+            return 0L;
+        } finally {
+            try {
+                callback.close();
+            } catch (IOException e) {
+                log.debug("Failed to close cgroup memory callback", e);
+            }
+        }
     }
 
     /**
@@ -294,8 +344,14 @@ public class DockerExecutionEngine {
 
             @Override
             public void onNext(Statistics statistics) {
-                if (statistics.getMemoryStats() != null && statistics.getMemoryStats().getUsage() != null) {
-                    maxMemoryBytes.accumulateAndGet(statistics.getMemoryStats().getUsage(), Math::max);
+                MemoryStatsConfig memoryStats = statistics.getMemoryStats();
+                if (memoryStats != null) {
+                    if (memoryStats.getMaxUsage() != null) {
+                        maxMemoryBytes.accumulateAndGet(memoryStats.getMaxUsage(), Math::max);
+                    }
+                    if (memoryStats.getUsage() != null) {
+                        maxMemoryBytes.accumulateAndGet(memoryStats.getUsage(), Math::max);
+                    }
                 }
                 firstSample.countDown();
             }
@@ -316,18 +372,6 @@ public class DockerExecutionEngine {
         };
         statsCmd.exec(callback);
         return new StatsCollector(statsCmd, callback, maxMemoryBytes, firstSample);
-    }
-
-    /**
-     * 计算阶段超时与请求剩余时间中的较小值。
-     *
-     * @param deadlineNanos      请求截止时间
-     * @param phaseTimeoutMillis 当前阶段超时
-     * @return 当前阶段实际可用毫秒数
-     */
-    private long remainingTimeout(long deadlineNanos, long phaseTimeoutMillis) {
-        long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
-        return Math.min(phaseTimeoutMillis, Math.max(remainingMillis, 0L));
     }
 
     /**
@@ -429,7 +473,7 @@ public class DockerExecutionEngine {
     }
 
     /**
-     * 终止已经超时的容器。
+     * 强制停止当前用例的运行容器及其全部进程。
      *
      * @param dockerClient Docker 客户端
      * @param containerId  容器 ID
@@ -438,7 +482,7 @@ public class DockerExecutionEngine {
         try {
             dockerClient.killContainerCmd(containerId).exec();
         } catch (Exception e) {
-            log.warn("Failed to kill timed-out Docker container: {}", containerId, e);
+            log.warn("Failed to kill Docker container: {}", containerId, e);
         }
     }
 
@@ -519,10 +563,10 @@ public class DockerExecutionEngine {
         /**
          * 获取采集到的最大内存占用。
          *
-         * @return 内存峰值，单位 KB
+         * @return 内存峰值，单位字节
          */
-        private long getMaxMemoryKb() {
-            return maxMemoryBytes.get() / 1024L;
+        private long getMaxMemoryBytes() {
+            return maxMemoryBytes.get();
         }
 
         /**

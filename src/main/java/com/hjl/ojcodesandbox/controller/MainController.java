@@ -1,15 +1,14 @@
 package com.hjl.ojcodesandbox.controller;
 
+import com.hjl.ojcodesandbox.model.ApiErrorResponse;
 import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
-import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
 import com.hjl.ojcodesandbox.sandbox.dispatch.DockerCodeSandboxDispatcher;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/")
@@ -35,14 +34,15 @@ public class MainController {
      * @return 代码执行响应
      */
     @PostMapping("/executeCode")
-    public ExecuteCodeResponse executeCode(@RequestBody ExecuteCodeRequest executeCodeRequest, HttpServletRequest request,
-                                           HttpServletResponse response) {
+    public ResponseEntity<?> executeCode(@RequestBody ExecuteCodeRequest executeCodeRequest,
+                                         HttpServletRequest request) {
         // 基本的认证
         String authHeader = request.getHeader(AUTH_REQUEST_HEADER);
         if (!AUTH_REQUEST_SECRET.equals(authHeader)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ApiErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden"));
         }
-        return dockerCodeSandboxDispatcher.executeCode(executeCodeRequest);
+        return ResponseEntity.ok(dockerCodeSandboxDispatcher.executeCode(executeCodeRequest));
     }
 
 }

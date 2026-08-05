@@ -67,15 +67,15 @@ class SandboxResponseFactoryTest {
         SandboxExecutionResult result = SandboxExecutionResult.failure(
                 SandboxFailureType.RUNTIME_ERROR,
                 Collections.singletonList(""),
-                "Runtime Error\nTime Limit Exceeded after 5000 ms",
+                "Runtime Error\nExecution timed out after 8000 ms",
                 4096L,
-                5000L
+                8000L
         );
 
         ExecuteCodeResponse response = SandboxResponseFactory.from(result);
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
-        assertEquals("Runtime Error\nTime Limit Exceeded after 5000 ms", response.getJudgeInfo().getMessage());
-        assertEquals(5000L, response.getJudgeInfo().getTime());
+        assertEquals("Runtime Error\nExecution timed out after 8000 ms", response.getJudgeInfo().getMessage());
+        assertEquals(8000L, response.getJudgeInfo().getTime());
     }
 }

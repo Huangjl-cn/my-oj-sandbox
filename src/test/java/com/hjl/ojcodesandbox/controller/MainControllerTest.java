@@ -16,8 +16,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Arrays;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -57,6 +59,31 @@ class MainControllerTest {
         mockMvc.perform(post("/executeCode")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"inputList\":[],\"code\":\"source\",\"language\":\"java\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("Forbidden"))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(jsonPath("$.exception").doesNotExist())
+                .andExpect(jsonPath("$.path").doesNotExist());
+
+        verifyNoInteractions(dockerCodeSandboxDispatcher);
+    }
+
+    @Test
+    void rejectsWrongAuthHeaderWithoutInternalDetails() throws Exception {
+        mockMvc.perform(post("/executeCode")
+                        .header("auth", "wrongKey")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inputList\":[],\"code\":\"source\",\"language\":\"java\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("Forbidden"))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(jsonPath("$.exception").doesNotExist())
+                .andExpect(jsonPath("$.path").doesNotExist());
+
+        verifyNoInteractions(dockerCodeSandboxDispatcher);
     }
 }
