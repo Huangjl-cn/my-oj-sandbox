@@ -470,7 +470,7 @@ public class DockerExecutionEngine {
         }
         try {
             dockerClient.close();
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.warn("Failed to close Docker client", e);
         }
     }
@@ -484,8 +484,12 @@ public class DockerExecutionEngine {
         if (sourceFile == null || sourceFile.getParentFile() == null) {
             return;
         }
-        if (!FileUtil.del(sourceFile.getParentFile())) {
-            log.warn("Failed to delete sandbox working directory: {}", sourceFile.getParent());
+        try {
+            if (!FileUtil.del(sourceFile.getParentFile())) {
+                log.warn("Failed to delete sandbox working directory: {}", sourceFile.getParent());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to delete sandbox working directory: {}", sourceFile.getParent(), e);
         }
     }
 

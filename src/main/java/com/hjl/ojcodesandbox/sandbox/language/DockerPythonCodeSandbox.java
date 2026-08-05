@@ -21,7 +21,8 @@ public class DockerPythonCodeSandbox extends AbstractDockerCodeSandbox {
                 "python:3.14-alpine",
                 "main.py",
                 new String[]{"python", "-m", "py_compile", "main.py"},
-                new String[]{"python", "main.py"}
+                new String[]{"python", "main.py"},
+                "PYTHONPYCACHEPREFIX=/tmp/python-cache"
         ));
     }
 }

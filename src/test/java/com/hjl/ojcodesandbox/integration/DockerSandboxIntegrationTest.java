@@ -1,5 +1,7 @@
 package com.hjl.ojcodesandbox.integration;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
 import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
 import com.hjl.ojcodesandbox.model.ExecuteStatusEnum;
@@ -46,6 +48,9 @@ class DockerSandboxIntegrationTest {
 
     @Autowired
     private DockerExecutionEngine executionEngine;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     /**
      * 验证五种语言均能按输入顺序返回真实运行输出。
@@ -256,15 +261,19 @@ class DockerSandboxIntegrationTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set(AUTH_HEADER, AUTH_SECRET);
 
-        ResponseEntity<ExecuteCodeResponse> response = restTemplate.postForEntity(
+        ResponseEntity<String> response = restTemplate.postForEntity(
                 "/executeCode",
                 new HttpEntity<>(request, headers),
-                ExecuteCodeResponse.class
+                String.class
         );
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(HttpStatus.OK, response.getStatusCode(), "Response body: " + response.getBody());
         assertNotNull(response.getBody());
-        return response.getBody();
+        try {
+            return objectMapper.readValue(response.getBody(), ExecuteCodeResponse.class);
+        } catch (JsonProcessingException e) {
+            throw new AssertionError("Invalid executeCode response: " + response.getBody(), e);
+        }
     }
 
     /**
