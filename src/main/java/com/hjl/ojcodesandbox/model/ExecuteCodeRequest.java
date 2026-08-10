@@ -13,9 +13,9 @@ import java.util.List;
 @AllArgsConstructor
 public class ExecuteCodeRequest {
 
-    private List<String> inputList;
-
     private String code;
 
     private String language;
+
+    private List<ExecuteCaseRequest> cases;
 }

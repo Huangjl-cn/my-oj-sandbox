@@ -11,6 +11,7 @@ import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
+import com.hjl.ojcodesandbox.model.ExecuteCaseRequest;
 import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
 import com.hjl.ojcodesandbox.sandbox.language.DockerLanguageDefinition;
 import com.hjl.ojcodesandbox.sandbox.result.DiagnosticSanitizer;
@@ -111,20 +112,20 @@ public class DockerExecutionEngine {
             List<String> outputs = new ArrayList<>();
             long maxMemoryKb = 0L;
             long maxTimeMillis = 0L;
-            List<String> inputList = request.getInputList();
-            if (!inputList.isEmpty()) {
+            List<ExecuteCaseRequest> cases = request.getCases();
+            if (!cases.isEmpty()) {
                 runContainerId = createContainer(
                         dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.ro);
             }
             // 每个用例重启同一运行容器，重置 cgroup 和临时文件并清除残留子进程。
-            for (String input : inputList) {
+            for (ExecuteCaseRequest executeCase : cases) {
                 dockerClient.startContainerCmd(runContainerId).exec();
                 DockerCommandResult runResult;
                 try {
                     runResult = executeCommand(
                             dockerClient,
                             runContainerId,
-                            languageDefinition.getRunCommand(input),
+                            languageDefinition.getRunCommand(executeCase.getArgs()),
                             RUN_TIMEOUT_MILLIS
                     );
                 } finally {
@@ -132,7 +133,7 @@ public class DockerExecutionEngine {
                 }
                 maxMemoryKb = Math.max(maxMemoryKb, runResult.getMemoryKb());
                 maxTimeMillis = Math.max(maxTimeMillis, runResult.getTimeMillis());
-                outputs.add(normalizeOutput(runResult.getStandardOutput()));
+                outputs.add(runResult.getStandardOutput());
 
                 if (runResult.isTimedOut()) {
                     return runtimeFailure(outputs, "Execution timed out after " + RUN_TIMEOUT_MILLIS + " ms",
@@ -220,7 +221,7 @@ public class DockerExecutionEngine {
                 .withReadonlyRootfs(true)
                 .withBinds(new Bind(
                         workingDirectory.getAbsolutePath(), new Volume(CONTAINER_WORK_DIR), accessMode))
-                .withTmpFs(Collections.singletonMap("/tmp", "rw,nosuid,nodev,size=64m"));
+                .withTmpFs(Collections.singletonMap("/tmp", "rw,nosuid,nodev,size=128m"));
 
         CreateContainerResponse response = dockerClient.createContainerCmd(languageDefinition.getImage())
                 .withHostConfig(hostConfig)
@@ -449,16 +450,6 @@ public class DockerExecutionEngine {
             return result.getStandardOutput();
         }
         return "Process exited with code " + result.getExitCode();
-    }
-
-    /**
-     * 统一换行符并移除输出末尾的空行。
-     *
-     * @param output 标准输出
-     * @return 规范化后的输出
-     */
-    private String normalizeOutput(String output) {
-        return output.replace("\r\n", "\n").replaceAll("[\\r\\n]+$", "");
     }
 
     /**

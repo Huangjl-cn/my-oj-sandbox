@@ -2,6 +2,7 @@ package com.hjl.ojcodesandbox.integration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hjl.ojcodesandbox.model.ExecuteCaseRequest;
 import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
 import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
 import com.hjl.ojcodesandbox.model.ExecuteStatusEnum;
@@ -61,13 +62,67 @@ class DockerSandboxIntegrationTest {
     @ParameterizedTest(name = "{0} executes successfully")
     @MethodSource("successfulPrograms")
     void executesEverySupportedLanguage(String language, String code) {
-        ExecuteCodeResponse response = execute(language, code, Arrays.asList("1 2", "3 4"));
+        ExecuteCodeResponse response = execute(language, code, Arrays.asList(
+                executeCase("1", "2"),
+                executeCase("3", "4")
+        ));
 
         assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
         assertEquals(Arrays.asList("3", "7"), response.getOutputList());
         assertNotNull(response.getJudgeInfo());
         assertTrue(response.getJudgeInfo().getMemory() >= 0L);
         assertTrue(response.getJudgeInfo().getTime() >= 0L);
+    }
+
+    /**
+     * 验证 Java 和 C++ 镜像内置的 JSON 依赖可解析并序列化常用 OJ 类型。
+     *
+     * @param language 请求语言
+     * @param code 使用镜像 JSON 依赖的源代码
+     */
+    @ParameterizedTest(name = "{0} supports bundled JSON types")
+    @MethodSource("jsonDependencyPrograms")
+    void supportsBundledJsonDependencies(String language, String code) {
+        ExecuteCodeResponse response = execute(language, code, Arrays.asList(
+                executeCase("intArray", "[1,2,3]"),
+                executeCase("intMatrix", "[[1,2],[3,4]]"),
+                executeCase("stringArray", "[\"hello world\",\"\"]"),
+                executeCase("string", "\"hello world\"")
+        ));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Arrays.asList(
+                "[1,2,3]",
+                "[[1,2],[3,4]]",
+                "[\"hello world\",\"\"]",
+                "\"hello world\""
+        ), response.getOutputList());
+    }
+
+    /**
+     * 验证 Go、Python 和 JavaScript 镜像自带的 JSON 能力可处理常用 OJ 类型。
+     *
+     * @param language 请求语言
+     * @param code 使用语言标准 JSON 能力的源代码
+     */
+    @ParameterizedTest(name = "{0} supports standard JSON types")
+    @MethodSource("standardJsonPrograms")
+    void supportsStandardJsonLibraries(String language, String code) {
+        ExecuteCodeResponse response = execute(language, code, Arrays.asList(
+                executeCase("intArray", "[1,2,3]"),
+                executeCase("intMatrix", "[[1,2],[3,4]]"),
+                executeCase("stringArray", "[\"hello world\",\"\"]"),
+                executeCase("string", "\"hello world\"")
+        ));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus(),
+                response.getJudgeInfo() == null ? "missing judgeInfo" : response.getJudgeInfo().getMessage());
+        assertEquals(Arrays.asList(
+                "[1,2,3]",
+                "[[1,2],[3,4]]",
+                "[\"hello world\",\"\"]",
+                "\"hello world\""
+        ), response.getOutputList());
     }
 
     /**
@@ -80,7 +135,7 @@ class DockerSandboxIntegrationTest {
     @ParameterizedTest(name = "{0} reports compile diagnostics")
     @MethodSource("compileErrorPrograms")
     void reportsCompileErrorsForEveryLanguage(String language, String code, String sourceFileName) {
-        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(""));
+        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(executeCase()));
 
         assertEquals(ExecuteStatusEnum.COMPILE_ERROR.getValue(), response.getStatus());
         assertTrue(response.getOutputList().isEmpty());
@@ -97,7 +152,7 @@ class DockerSandboxIntegrationTest {
     @ParameterizedTest(name = "{0} reports runtime diagnostics")
     @MethodSource("runtimeErrorPrograms")
     void reportsRuntimeErrorsForEveryLanguage(String language, String code) {
-        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(""));
+        ExecuteCodeResponse response = execute(language, code, Collections.singletonList(executeCase()));
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
@@ -112,7 +167,7 @@ class DockerSandboxIntegrationTest {
         ExecuteCodeResponse response = execute(
                 "javascript",
                 "while (true) {}",
-                Collections.singletonList("")
+                Collections.singletonList(executeCase())
         );
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
@@ -129,9 +184,13 @@ class DockerSandboxIntegrationTest {
                 + "value = int(sys.argv[1])\n"
                 + "if value == 2:\n"
                 + "    raise RuntimeError('stop')\n"
-                + "print(value)";
+                + "sys.stdout.write(str(value))";
 
-        ExecuteCodeResponse response = execute("python", code, Arrays.asList("1", "2", "3"));
+        ExecuteCodeResponse response = execute("python", code, Arrays.asList(
+                executeCase("1"),
+                executeCase("2"),
+                executeCase("3")
+        ));
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertEquals(2, response.getOutputList().size());
@@ -152,13 +211,16 @@ class DockerSandboxIntegrationTest {
                 + "        open('/app/work-marker', 'w').close()\n"
                 + "    except OSError:\n"
                 + "        pass\n"
-                + "    print('first')\n"
+                + "    print('first', end='')\n"
                 + "else:\n"
                 + "    time.sleep(1.5)\n"
                 + "    print(os.path.exists('/tmp/marker') or os.path.exists('/tmp/leaked') "
-                + "or os.path.exists('/app/work-marker'))";
+                + "or os.path.exists('/app/work-marker'), end='')";
 
-        ExecuteCodeResponse response = execute("python", code, Arrays.asList("first", "second"));
+        ExecuteCodeResponse response = execute("python", code, Arrays.asList(
+                executeCase("first"),
+                executeCase("second")
+        ));
 
         assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
         assertEquals(Arrays.asList("first", "False"), response.getOutputList());
@@ -172,9 +234,10 @@ class DockerSandboxIntegrationTest {
         String code = "import sys, time\n"
                 + "data = bytearray(int(sys.argv[1]) * 1024 * 1024)\n"
                 + "time.sleep(1.5)\n"
-                + "print(len(data))";
+                + "print(len(data), end='')";
 
-        ExecuteCodeResponse response = execute("python", code, Collections.singletonList("16"));
+        ExecuteCodeResponse response = execute("python", code,
+                Collections.singletonList(executeCase("16")));
 
         assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
         assertEquals(Collections.singletonList("16777216"), response.getOutputList());
@@ -196,9 +259,9 @@ class DockerSandboxIntegrationTest {
                 new String[]{"python", "main.py"}
         );
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
-                .code("print('ok')")
+                .code("print('ok', end='')")
                 .language("python")
-                .inputList(Collections.singletonList(""))
+                .cases(Collections.singletonList(executeCase()))
                 .build();
 
         SandboxExecutionResult result = executionEngine.execute(request, definition);
@@ -224,7 +287,7 @@ class DockerSandboxIntegrationTest {
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .code("public class Main {}")
                 .language("java")
-                .inputList(Collections.emptyList())
+                .cases(Collections.emptyList())
                 .build();
 
         SandboxExecutionResult result = executionEngine.execute(request, definition);
@@ -248,7 +311,7 @@ class DockerSandboxIntegrationTest {
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .code("print('ok')")
                 .language("python")
-                .inputList(Collections.singletonList(""))
+                .cases(Collections.singletonList(executeCase()))
                 .build();
 
         SandboxExecutionResult result = executionEngine.execute(request, definition);
@@ -264,7 +327,7 @@ class DockerSandboxIntegrationTest {
     void enforcesOutputLimit() {
         String code = "import sys\nsys.stdout.write('x' * (1024 * 1024 + 1024))";
 
-        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(executeCase()));
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertTrue(response.getJudgeInfo().getMessage().contains("Output Limit Exceeded"));
@@ -277,7 +340,7 @@ class DockerSandboxIntegrationTest {
     void blocksExternalNetworkAccess() {
         String code = "import socket\nsocket.create_connection(('1.1.1.1', 53), timeout=1)";
 
-        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(executeCase()));
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
@@ -290,10 +353,47 @@ class DockerSandboxIntegrationTest {
     void keepsContainerRootFilesystemReadOnly() {
         String code = "with open('/sandbox-write-test', 'w') as file:\n    file.write('blocked')";
 
-        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(""));
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(executeCase()));
 
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertTrue(response.getJudgeInfo().getMessage().startsWith("Runtime Error"));
+    }
+
+    /**
+     * 验证结构化参数在空格、空串、JSON 文本和 shell 元字符处保持边界。
+     */
+    @Test
+    void preservesStructuredArgumentBoundariesWithoutShellInterpretation() {
+        String code = "import json, sys\n"
+                + "sys.stdout.write(json.dumps(sys.argv[1:], separators=(',', ':')))";
+
+        ExecuteCodeResponse response = execute("python", code, Arrays.asList(
+                executeCase("hello world", ""),
+                executeCase("[1,2,3]", "4"),
+                executeCase("[[1,2],[3,4]]"),
+                executeCase("& calc", "$(command)")
+        ));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Arrays.asList(
+                "[\"hello world\",\"\"]",
+                "[\"[1,2,3]\",\"4\"]",
+                "[\"[[1,2],[3,4]]\"]",
+                "[\"& calc\",\"$(command)\"]"
+        ), response.getOutputList());
+    }
+
+    /**
+     * 验证标准输出的空格和换行不会被沙箱规范化。
+     */
+    @Test
+    void returnsRawStandardOutput() {
+        String code = "import sys\nsys.stdout.write('  leading\\ntrailing  \\n')";
+
+        ExecuteCodeResponse response = execute("python", code, Collections.singletonList(executeCase()));
+
+        assertEquals(ExecuteStatusEnum.ACCEPTED.getValue(), response.getStatus());
+        assertEquals(Collections.singletonList("  leading\ntrailing  \n"), response.getOutputList());
     }
 
     /**
@@ -301,14 +401,14 @@ class DockerSandboxIntegrationTest {
      *
      * @param language 请求语言
      * @param code 用户源代码
-     * @param inputList argv 输入列表
+     * @param cases 结构化执行用例
      * @return 代码执行响应
      */
-    private ExecuteCodeResponse execute(String language, String code, java.util.List<String> inputList) {
+    private ExecuteCodeResponse execute(String language, String code, java.util.List<ExecuteCaseRequest> cases) {
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .language(language)
                 .code(code)
-                .inputList(inputList)
+                .cases(cases)
                 .build();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -329,6 +429,12 @@ class DockerSandboxIntegrationTest {
         }
     }
 
+    private static ExecuteCaseRequest executeCase(String... args) {
+        return ExecuteCaseRequest.builder()
+                .args(Arrays.asList(args))
+                .build();
+    }
+
     /**
      * 提供五种语言的加法程序。
      *
@@ -343,8 +449,97 @@ class DockerSandboxIntegrationTest {
                 Arguments.of("go", "package main\nimport (\n\"fmt\"\n\"os\"\n\"strconv\"\n)\n"
                         + "func main() { a, _ := strconv.Atoi(os.Args[1]); b, _ := strconv.Atoi(os.Args[2]); "
                         + "fmt.Print(a + b) }"),
-                Arguments.of("python", "import sys\nprint(int(sys.argv[1]) + int(sys.argv[2]))"),
-                Arguments.of("javascript", "console.log(Number(process.argv[2]) + Number(process.argv[3]));")
+                Arguments.of("python", "import sys\nsys.stdout.write(str(int(sys.argv[1]) + int(sys.argv[2])))"),
+                Arguments.of("javascript", "process.stdout.write(String(Number(process.argv[2]) "
+                        + "+ Number(process.argv[3])));")
+        );
+    }
+
+    /**
+     * 提供 Java Gson 和 C++ nlohmann/json 验收程序。
+     *
+     * @return JSON 依赖验收程序参数
+     */
+    private static Stream<Arguments> jsonDependencyPrograms() {
+        String javaCode = "import com.google.gson.Gson;\n"
+                + "public class Main {\n"
+                + "    public static void main(String[] args) {\n"
+                + "        Gson gson = new Gson();\n"
+                + "        switch (args[0]) {\n"
+                + "            case \"intArray\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[].class)));\n"
+                + "                break;\n"
+                + "            case \"intMatrix\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[][].class)));\n"
+                + "                break;\n"
+                + "            case \"stringArray\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String[].class)));\n"
+                + "                break;\n"
+                + "            case \"string\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String.class)));\n"
+                + "                break;\n"
+                + "            default:\n"
+                + "                throw new IllegalArgumentException(args[0]);\n"
+                + "        }\n"
+                + "    }\n"
+                + "}";
+        String cppCode = "#include <iostream>\n"
+                + "#include <string>\n"
+                + "#include <vector>\n"
+                + "#include <nlohmann/json.hpp>\n"
+                + "int main(int argc, char* argv[]) {\n"
+                + "    std::string type = argv[1];\n"
+                + "    auto input = nlohmann::json::parse(argv[2]);\n"
+                + "    if (type == \"intArray\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<int>>()).dump();\n"
+                + "    } else if (type == \"intMatrix\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<std::vector<int>>>()).dump();\n"
+                + "    } else if (type == \"stringArray\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<std::string>>()).dump();\n"
+                + "    } else if (type == \"string\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::string>()).dump();\n"
+                + "    } else {\n"
+                + "        return 2;\n"
+                + "    }\n"
+                + "}";
+        return Stream.of(
+                Arguments.of("java", javaCode),
+                Arguments.of("cpp", cppCode)
+        );
+    }
+
+    /**
+     * 提供 Go、Python 和 JavaScript 标准 JSON 验收程序。
+     *
+     * @return 标准 JSON 验收程序参数
+     */
+    private static Stream<Arguments> standardJsonPrograms() {
+        String goCode = "package main\n"
+                + "import (\n"
+                + "    \"encoding/json\"\n"
+                + "    \"fmt\"\n"
+                + "    \"os\"\n"
+                + ")\n"
+                + "func main() {\n"
+                + "    var value interface{}\n"
+                + "    if err := json.Unmarshal([]byte(os.Args[2]), &value); err != nil {\n"
+                + "        panic(err)\n"
+                + "    }\n"
+                + "    output, err := json.Marshal(value)\n"
+                + "    if err != nil {\n"
+                + "        panic(err)\n"
+                + "    }\n"
+                + "    fmt.Print(string(output))\n"
+                + "}";
+        String pythonCode = "import json, sys\n"
+                + "value = json.loads(sys.argv[2])\n"
+                + "sys.stdout.write(json.dumps(value, ensure_ascii=False, separators=(',', ':')))";
+        String javascriptCode = "const value = JSON.parse(process.argv[3]);\n"
+                + "process.stdout.write(JSON.stringify(value));";
+        return Stream.of(
+                Arguments.of("go", goCode),
+                Arguments.of("python", pythonCode),
+                Arguments.of("javascript", javascriptCode)
         );
     }
 

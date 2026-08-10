@@ -3,6 +3,9 @@ package com.hjl.ojcodesandbox.sandbox.language;
 import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 class DockerLanguageDefinitionTest {
@@ -16,15 +19,17 @@ class DockerLanguageDefinitionTest {
     );
 
     @Test
-    void appendsWhitespaceSeparatedArgvValues() {
+    void appendsEveryArgumentWithoutParsingOrShellInterpretation() {
         assertArrayEquals(
-                new String[]{"java", "Main", "1", "2", "3"},
-                definition.getRunCommand("  1   2  3  ")
+                new String[]{"java", "Main", "hello world", "", "[1,2,3]", "[[1,2],[3,4]]",
+                        "& calc", "$(command)"},
+                definition.getRunCommand(Arrays.asList(
+                        "hello world", "", "[1,2,3]", "[[1,2],[3,4]]", "& calc", "$(command)"))
         );
     }
 
     @Test
-    void leavesCommandUnchangedForEmptyInput() {
-        assertArrayEquals(new String[]{"java", "Main"}, definition.getRunCommand(""));
+    void leavesCommandUnchangedForEmptyArgumentList() {
+        assertArrayEquals(new String[]{"java", "Main"}, definition.getRunCommand(Collections.emptyList()));
     }
 }

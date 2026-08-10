@@ -1,6 +1,5 @@
 package com.hjl.ojcodesandbox.sandbox.language;
 
-import cn.hutool.core.util.StrUtil;
 import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
 import lombok.Getter;
 
@@ -58,16 +57,15 @@ public final class DockerLanguageDefinition {
     }
 
     /**
-     * 将输入按空白字符拆分，并追加到基础运行命令作为 argv。
+     * 将当前用例的独立参数原样追加到基础运行命令。
      *
-     * @param input 当前测试用例输入
+     * @param args 当前测试用例参数
      * @return 完整运行命令
      */
-    public String[] getRunCommand(String input) {
-        List<String> command = new ArrayList<>(Arrays.asList(runCommand));
-        if (StrUtil.isNotBlank(input)) {
-            command.addAll(Arrays.asList(input.trim().split("\\s+")));
-        }
+    public String[] getRunCommand(List<String> args) {
+        List<String> command = new ArrayList<>(runCommand.length + args.size());
+        command.addAll(Arrays.asList(runCommand));
+        command.addAll(args);
         return command.toArray(new String[0]);
     }
 

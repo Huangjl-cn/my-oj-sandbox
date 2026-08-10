@@ -18,7 +18,7 @@ public class DockerCppCodeSandbox extends AbstractDockerCodeSandbox {
     public DockerCppCodeSandbox(DockerExecutionEngine executionEngine) {
         super(executionEngine, new DockerLanguageDefinition(
                 QuestionSubmitLanguageEnum.CPLUSPLUS,
-                "gcc:15",
+                "oj-code-sandbox/gcc-nlohmann-json:15-3.12.0",
                 "main.cpp",
                 new String[]{"g++", "main.cpp", "-O2", "-std=c++17", "-o", "main"},
                 new String[]{"./main"}
