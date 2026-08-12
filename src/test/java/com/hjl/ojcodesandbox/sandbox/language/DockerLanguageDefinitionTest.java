@@ -15,7 +15,8 @@ class DockerLanguageDefinitionTest {
             "image",
             "Main.java",
             new String[]{"javac", "Main.java"},
-            new String[]{"java", "Main"}
+            new String[]{"java", "Main"},
+            null
     );
 
     @Test

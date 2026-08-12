@@ -21,7 +21,8 @@ public class DockerJavaCodeSandbox extends AbstractDockerCodeSandbox {
                 "oj-code-sandbox/eclipse-temurin-gson:25-jdk-alpine-2.14.0",
                 "Main.java",
                 new String[]{"javac", "-encoding", "UTF-8", "-cp", "/opt/libs/gson.jar", "Main.java"},
-                new String[]{"java", "-cp", "/app:/opt/libs/gson.jar", "Main"}
+                new String[]{"java", "-cp", "/app:/opt/libs/gson.jar", "Main"},
+                null
         ));
     }
 }

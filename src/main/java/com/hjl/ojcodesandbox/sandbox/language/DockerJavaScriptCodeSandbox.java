@@ -21,7 +21,8 @@ public class DockerJavaScriptCodeSandbox extends AbstractDockerCodeSandbox {
                 "node:24-alpine",
                 "main.js",
                 new String[]{"node", "--check", "main.js"},
-                new String[]{"node", "main.js"}
+                new String[]{"node", "main.js"},
+                null
         ));
     }
 }

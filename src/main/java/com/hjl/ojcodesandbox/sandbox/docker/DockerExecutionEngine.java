@@ -49,9 +49,18 @@ public class DockerExecutionEngine {
 
     private static final long CPU_LIMIT = 1_000_000_000L;
 
+    /**
+     * 编译容器 CPU 上限（2 核）。编译是短时高 CPU 需求的任务，且受 COMPILE_TIMEOUT_MILLIS 保护，
+     * 放开到宿主机核数可显著加快 Go 等并行编译；运行容器保持 CPU_LIMIT（1 核）防止恶意代码吃满 CPU。
+     */
+    private static final long COMPILE_CPU_LIMIT = 2_000_000_000L;
+
     private static final long PID_LIMIT = 64L;
 
-    private static final long COMPILE_TIMEOUT_MILLIS = 10_000L;
+    /**
+     * 编译超时：受调用方 60s 总预算约束（需给运行阶段留出空间），因此不能超过 30s。
+     */
+    private static final long COMPILE_TIMEOUT_MILLIS = 30_000L;
 
     private static final long RUN_TIMEOUT_MILLIS = 8_000L;
 
@@ -85,7 +94,7 @@ public class DockerExecutionEngine {
             sourceFile = saveSourceCode(request.getCode(), languageDefinition.getSourceFileName());
             dockerClient = createDockerClient();
             compileContainerId = createContainer(
-                    dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.rw);
+                    dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.rw, COMPILE_CPU_LIMIT);
             dockerClient.startContainerCmd(compileContainerId).exec();
 
             DockerCommandResult compileResult = executeCommand(
@@ -115,7 +124,7 @@ public class DockerExecutionEngine {
             List<ExecuteCaseRequest> cases = request.getCases();
             if (!cases.isEmpty()) {
                 runContainerId = createContainer(
-                        dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.ro);
+                        dockerClient, sourceFile.getParentFile(), languageDefinition, AccessMode.ro, CPU_LIMIT);
             }
             // 每个用例重启同一运行容器，重置 cgroup 和临时文件并清除残留子进程。
             for (ExecuteCaseRequest executeCase : cases) {
@@ -209,19 +218,31 @@ public class DockerExecutionEngine {
      * @param workingDirectory   本次请求的工作目录
      * @param languageDefinition 语言执行定义
      * @param accessMode         工作目录挂载权限
+     * @param cpuLimit           容器 CPU 上限（纳秒）；编译容器与运行容器使用不同配额
      * @return 容器 ID
      */
     private String createContainer(DockerClient dockerClient, File workingDirectory,
-                                   DockerLanguageDefinition languageDefinition, AccessMode accessMode) {
+                                   DockerLanguageDefinition languageDefinition, AccessMode accessMode,
+                                   long cpuLimit) {
         HostConfig hostConfig = HostConfig.newHostConfig()
                 .withMemory(MEMORY_LIMIT_BYTES)
                 .withMemorySwap(MEMORY_LIMIT_BYTES)
-                .withNanoCPUs(CPU_LIMIT)
+                .withNanoCPUs(cpuLimit)
                 .withPidsLimit(PID_LIMIT)
                 .withReadonlyRootfs(true)
-                .withBinds(new Bind(
-                        workingDirectory.getAbsolutePath(), new Volume(CONTAINER_WORK_DIR), accessMode))
                 .withTmpFs(Collections.singletonMap("/tmp", "rw,nosuid,nodev,size=128m"));
+
+        // 编译阶段挂载持久化缓存卷（如 Go 的 GOCACHE），使编译器产物跨提交复用；运行容器不挂载。
+        Bind workingDirectoryBind = new Bind(
+                workingDirectory.getAbsolutePath(), new Volume(CONTAINER_WORK_DIR), accessMode);
+        if (AccessMode.rw == accessMode && languageDefinition.getCompileCacheVolume() != null) {
+            hostConfig.withBinds(workingDirectoryBind,
+                    new Bind(languageDefinition.getCompileCacheVolumeName(),
+                            new Volume(languageDefinition.getCompileCacheVolumePath()), AccessMode.rw));
+        } else {
+            hostConfig.withBinds(workingDirectoryBind);
+        }
+
 
         CreateContainerResponse response = dockerClient.createContainerCmd(languageDefinition.getImage())
                 .withHostConfig(hostConfig)

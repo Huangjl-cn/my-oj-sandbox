@@ -20,8 +20,9 @@ public class DockerCppCodeSandbox extends AbstractDockerCodeSandbox {
                 QuestionSubmitLanguageEnum.CPLUSPLUS,
                 "oj-code-sandbox/gcc-nlohmann-json:15-3.12.0",
                 "main.cpp",
-                new String[]{"g++", "main.cpp", "-O2", "-std=c++17", "-o", "main"},
-                new String[]{"./main"}
+                new String[]{"g++", "main.cpp", "-O2", "-std=c++17", "-pipe", "-o", "main"},
+                new String[]{"./main"},
+                null
         ));
     }
 }

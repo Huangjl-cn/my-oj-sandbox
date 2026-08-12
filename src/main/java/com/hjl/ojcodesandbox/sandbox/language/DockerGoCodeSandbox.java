@@ -22,6 +22,8 @@ public class DockerGoCodeSandbox extends AbstractDockerCodeSandbox {
                 "main.go",
                 new String[]{"go", "build", "-o", "main", "main.go"},
                 new String[]{"./main"},
+                // GOCACHE 指向持久化 named volume，标准库构建产物跨提交复用。
+                "oj-gocache:/tmp/go-build",
                 "GOCACHE=/tmp/go-build",
                 "HOME=/tmp"
         ));

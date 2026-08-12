@@ -392,7 +392,8 @@ class DockerSandboxIntegrationTest {
                 "main.py",
                 new String[]{"python", "-c",
                         "import time; data = bytearray(96 * 1024 * 1024); time.sleep(0.2)"},
-                new String[]{"python", "main.py"}
+                new String[]{"python", "main.py"},
+                null
         );
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .code("print('ok', end='')")
@@ -418,7 +419,8 @@ class DockerSandboxIntegrationTest {
                 "oj-code-sandbox/missing-image:integration-test",
                 "Main.java",
                 new String[]{"javac", "Main.java"},
-                new String[]{"java", "Main"}
+                new String[]{"java", "Main"},
+                null
         );
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .code("public class Main {}")
@@ -441,8 +443,9 @@ class DockerSandboxIntegrationTest {
                 QuestionSubmitLanguageEnum.PYTHON,
                 "python:3.14-alpine",
                 "main.py",
-                new String[]{"sh", "-c", "sleep 11"},
-                new String[]{"python", "main.py"}
+                new String[]{"sh", "-c", "sleep 31"},
+                new String[]{"python", "main.py"},
+                null
         );
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
                 .code("print('ok')")

@@ -22,6 +22,7 @@ public class DockerPythonCodeSandbox extends AbstractDockerCodeSandbox {
                 "main.py",
                 new String[]{"python", "-m", "py_compile", "main.py"},
                 new String[]{"python", "main.py"},
+                null,
                 "PYTHONPYCACHEPREFIX=/tmp/python-cache"
         ));
     }
