@@ -2,11 +2,7 @@ package com.hjl.ojcodesandbox.integration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hjl.ojcodesandbox.model.ExecuteCaseRequest;
-import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
-import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
-import com.hjl.ojcodesandbox.model.ExecuteStatusEnum;
-import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
+import com.hjl.ojcodesandbox.model.*;
 import com.hjl.ojcodesandbox.sandbox.docker.DockerExecutionEngine;
 import com.hjl.ojcodesandbox.sandbox.language.DockerLanguageDefinition;
 import com.hjl.ojcodesandbox.sandbox.result.SandboxExecutionResult;
@@ -19,19 +15,13 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 在 Linux Docker 环境中验证五种语言的真实 HTTP 执行链路。
@@ -53,11 +43,157 @@ class DockerSandboxIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    private static ExecuteCaseRequest executeCase(String... args) {
+        return ExecuteCaseRequest.builder()
+                .args(Arrays.asList(args))
+                .build();
+    }
+
+    /**
+     * 提供五种语言的加法程序。
+     *
+     * @return 成功程序参数
+     */
+    private static Stream<Arguments> successfulPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { "
+                        + "System.out.print(Integer.parseInt(args[0]) + Integer.parseInt(args[1])); } }"),
+                Arguments.of("cpp", "#include <cstdlib>\n#include <iostream>\n"
+                        + "int main(int argc, char* argv[]) { std::cout << std::atoi(argv[1]) + std::atoi(argv[2]); }"),
+                Arguments.of("go", "package main\nimport (\n\"fmt\"\n\"os\"\n\"strconv\"\n)\n"
+                        + "func main() { a, _ := strconv.Atoi(os.Args[1]); b, _ := strconv.Atoi(os.Args[2]); "
+                        + "fmt.Print(a + b) }"),
+                Arguments.of("python", "import sys\nsys.stdout.write(str(int(sys.argv[1]) + int(sys.argv[2])))"),
+                Arguments.of("javascript", "process.stdout.write(String(Number(process.argv[2]) "
+                        + "+ Number(process.argv[3])));")
+        );
+    }
+
+    /**
+     * 提供 Java Gson 和 C++ nlohmann/json 验收程序。
+     *
+     * @return JSON 依赖验收程序参数
+     */
+    private static Stream<Arguments> jsonDependencyPrograms() {
+        String javaCode = "import com.google.gson.Gson;\n"
+                + "public class Main {\n"
+                + "    public static void main(String[] args) {\n"
+                + "        Gson gson = new Gson();\n"
+                + "        switch (args[0]) {\n"
+                + "            case \"intArray\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[].class)));\n"
+                + "                break;\n"
+                + "            case \"intMatrix\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[][].class)));\n"
+                + "                break;\n"
+                + "            case \"stringArray\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String[].class)));\n"
+                + "                break;\n"
+                + "            case \"string\":\n"
+                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String.class)));\n"
+                + "                break;\n"
+                + "            default:\n"
+                + "                throw new IllegalArgumentException(args[0]);\n"
+                + "        }\n"
+                + "    }\n"
+                + "}";
+        String cppCode = "#include <iostream>\n"
+                + "#include <string>\n"
+                + "#include <vector>\n"
+                + "#include <nlohmann/json.hpp>\n"
+                + "int main(int argc, char* argv[]) {\n"
+                + "    std::string type = argv[1];\n"
+                + "    auto input = nlohmann::json::parse(argv[2]);\n"
+                + "    if (type == \"intArray\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<int>>()).dump();\n"
+                + "    } else if (type == \"intMatrix\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<std::vector<int>>>()).dump();\n"
+                + "    } else if (type == \"stringArray\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::vector<std::string>>()).dump();\n"
+                + "    } else if (type == \"string\") {\n"
+                + "        std::cout << nlohmann::json(input.get<std::string>()).dump();\n"
+                + "    } else {\n"
+                + "        return 2;\n"
+                + "    }\n"
+                + "}";
+        return Stream.of(
+                Arguments.of("java", javaCode),
+                Arguments.of("cpp", cppCode)
+        );
+    }
+
+    /**
+     * 提供 Go、Python 和 JavaScript 标准 JSON 验收程序。
+     *
+     * @return 标准 JSON 验收程序参数
+     */
+    private static Stream<Arguments> standardJsonPrograms() {
+        String goCode = "package main\n"
+                + "import (\n"
+                + "    \"encoding/json\"\n"
+                + "    \"fmt\"\n"
+                + "    \"os\"\n"
+                + ")\n"
+                + "func main() {\n"
+                + "    var value interface{}\n"
+                + "    if err := json.Unmarshal([]byte(os.Args[2]), &value); err != nil {\n"
+                + "        panic(err)\n"
+                + "    }\n"
+                + "    output, err := json.Marshal(value)\n"
+                + "    if err != nil {\n"
+                + "        panic(err)\n"
+                + "    }\n"
+                + "    fmt.Print(string(output))\n"
+                + "}";
+        String pythonCode = "import json, sys\n"
+                + "value = json.loads(sys.argv[2])\n"
+                + "sys.stdout.write(json.dumps(value, ensure_ascii=False, separators=(',', ':')))";
+        String javascriptCode = "const value = JSON.parse(process.argv[3]);\n"
+                + "process.stdout.write(JSON.stringify(value));";
+        return Stream.of(
+                Arguments.of("go", goCode),
+                Arguments.of("python", pythonCode),
+                Arguments.of("javascript", javascriptCode)
+        );
+    }
+
+    /**
+     * 提供五种语言的编译错误程序。
+     *
+     * @return 编译错误程序参数
+     */
+    private static Stream<Arguments> compileErrorPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { int value = } }",
+                        "Main.java"),
+                Arguments.of("cpp", "int main() { return }", "main.cpp"),
+                Arguments.of("go", "package main\nfunc main( {", "main.go"),
+                Arguments.of("python", "def main(:\n    pass", "main.py"),
+                Arguments.of("javascript", "const value = ;", "main.js")
+        );
+    }
+
+    /**
+     * 提供五种语言的运行错误程序。
+     *
+     * @return 运行错误程序参数
+     */
+    private static Stream<Arguments> runtimeErrorPrograms() {
+        return Stream.of(
+                Arguments.of("java", "public class Main { public static void main(String[] args) { "
+                        + "throw new RuntimeException(\"boom\"); } }"),
+                Arguments.of("cpp", "int main() { return 7; }"),
+                Arguments.of("go", "package main\nfunc main() { panic(\"boom\") }"),
+                Arguments.of("python", "raise RuntimeError('boom')"),
+                Arguments.of("javascript", "throw new Error('boom');")
+        );
+    }
+
     /**
      * 验证五种语言均能按输入顺序返回真实运行输出。
      *
      * @param language 请求语言
-     * @param code 可执行源代码
+     * @param code     可执行源代码
      */
     @ParameterizedTest(name = "{0} executes successfully")
     @MethodSource("successfulPrograms")
@@ -78,7 +214,7 @@ class DockerSandboxIntegrationTest {
      * 验证 Java 和 C++ 镜像内置的 JSON 依赖可解析并序列化常用 OJ 类型。
      *
      * @param language 请求语言
-     * @param code 使用镜像 JSON 依赖的源代码
+     * @param code     使用镜像 JSON 依赖的源代码
      */
     @ParameterizedTest(name = "{0} supports bundled JSON types")
     @MethodSource("jsonDependencyPrograms")
@@ -103,7 +239,7 @@ class DockerSandboxIntegrationTest {
      * 验证 Go、Python 和 JavaScript 镜像自带的 JSON 能力可处理常用 OJ 类型。
      *
      * @param language 请求语言
-     * @param code 使用语言标准 JSON 能力的源代码
+     * @param code     使用语言标准 JSON 能力的源代码
      */
     @ParameterizedTest(name = "{0} supports standard JSON types")
     @MethodSource("standardJsonPrograms")
@@ -128,8 +264,8 @@ class DockerSandboxIntegrationTest {
     /**
      * 验证五种语言的语法或编译错误均返回源码定位。
      *
-     * @param language 请求语言
-     * @param code 包含编译错误的源代码
+     * @param language       请求语言
+     * @param code           包含编译错误的源代码
      * @param sourceFileName 预期出现的源文件名
      */
     @ParameterizedTest(name = "{0} reports compile diagnostics")
@@ -147,7 +283,7 @@ class DockerSandboxIntegrationTest {
      * 验证五种语言的非零退出均返回运行错误诊断。
      *
      * @param language 请求语言
-     * @param code 运行时失败的源代码
+     * @param code     运行时失败的源代码
      */
     @ParameterizedTest(name = "{0} reports runtime diagnostics")
     @MethodSource("runtimeErrorPrograms")
@@ -400,8 +536,8 @@ class DockerSandboxIntegrationTest {
      * 通过真实 HTTP 接口执行代码并返回响应体。
      *
      * @param language 请求语言
-     * @param code 用户源代码
-     * @param cases 结构化执行用例
+     * @param code     用户源代码
+     * @param cases    结构化执行用例
      * @return 代码执行响应
      */
     private ExecuteCodeResponse execute(String language, String code, java.util.List<ExecuteCaseRequest> cases) {
@@ -427,151 +563,5 @@ class DockerSandboxIntegrationTest {
         } catch (JsonProcessingException e) {
             throw new AssertionError("Invalid executeCode response: " + response.getBody(), e);
         }
-    }
-
-    private static ExecuteCaseRequest executeCase(String... args) {
-        return ExecuteCaseRequest.builder()
-                .args(Arrays.asList(args))
-                .build();
-    }
-
-    /**
-     * 提供五种语言的加法程序。
-     *
-     * @return 成功程序参数
-     */
-    private static Stream<Arguments> successfulPrograms() {
-        return Stream.of(
-                Arguments.of("java", "public class Main { public static void main(String[] args) { "
-                        + "System.out.print(Integer.parseInt(args[0]) + Integer.parseInt(args[1])); } }"),
-                Arguments.of("cpp", "#include <cstdlib>\n#include <iostream>\n"
-                        + "int main(int argc, char* argv[]) { std::cout << std::atoi(argv[1]) + std::atoi(argv[2]); }"),
-                Arguments.of("go", "package main\nimport (\n\"fmt\"\n\"os\"\n\"strconv\"\n)\n"
-                        + "func main() { a, _ := strconv.Atoi(os.Args[1]); b, _ := strconv.Atoi(os.Args[2]); "
-                        + "fmt.Print(a + b) }"),
-                Arguments.of("python", "import sys\nsys.stdout.write(str(int(sys.argv[1]) + int(sys.argv[2])))"),
-                Arguments.of("javascript", "process.stdout.write(String(Number(process.argv[2]) "
-                        + "+ Number(process.argv[3])));")
-        );
-    }
-
-    /**
-     * 提供 Java Gson 和 C++ nlohmann/json 验收程序。
-     *
-     * @return JSON 依赖验收程序参数
-     */
-    private static Stream<Arguments> jsonDependencyPrograms() {
-        String javaCode = "import com.google.gson.Gson;\n"
-                + "public class Main {\n"
-                + "    public static void main(String[] args) {\n"
-                + "        Gson gson = new Gson();\n"
-                + "        switch (args[0]) {\n"
-                + "            case \"intArray\":\n"
-                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[].class)));\n"
-                + "                break;\n"
-                + "            case \"intMatrix\":\n"
-                + "                System.out.print(gson.toJson(gson.fromJson(args[1], int[][].class)));\n"
-                + "                break;\n"
-                + "            case \"stringArray\":\n"
-                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String[].class)));\n"
-                + "                break;\n"
-                + "            case \"string\":\n"
-                + "                System.out.print(gson.toJson(gson.fromJson(args[1], String.class)));\n"
-                + "                break;\n"
-                + "            default:\n"
-                + "                throw new IllegalArgumentException(args[0]);\n"
-                + "        }\n"
-                + "    }\n"
-                + "}";
-        String cppCode = "#include <iostream>\n"
-                + "#include <string>\n"
-                + "#include <vector>\n"
-                + "#include <nlohmann/json.hpp>\n"
-                + "int main(int argc, char* argv[]) {\n"
-                + "    std::string type = argv[1];\n"
-                + "    auto input = nlohmann::json::parse(argv[2]);\n"
-                + "    if (type == \"intArray\") {\n"
-                + "        std::cout << nlohmann::json(input.get<std::vector<int>>()).dump();\n"
-                + "    } else if (type == \"intMatrix\") {\n"
-                + "        std::cout << nlohmann::json(input.get<std::vector<std::vector<int>>>()).dump();\n"
-                + "    } else if (type == \"stringArray\") {\n"
-                + "        std::cout << nlohmann::json(input.get<std::vector<std::string>>()).dump();\n"
-                + "    } else if (type == \"string\") {\n"
-                + "        std::cout << nlohmann::json(input.get<std::string>()).dump();\n"
-                + "    } else {\n"
-                + "        return 2;\n"
-                + "    }\n"
-                + "}";
-        return Stream.of(
-                Arguments.of("java", javaCode),
-                Arguments.of("cpp", cppCode)
-        );
-    }
-
-    /**
-     * 提供 Go、Python 和 JavaScript 标准 JSON 验收程序。
-     *
-     * @return 标准 JSON 验收程序参数
-     */
-    private static Stream<Arguments> standardJsonPrograms() {
-        String goCode = "package main\n"
-                + "import (\n"
-                + "    \"encoding/json\"\n"
-                + "    \"fmt\"\n"
-                + "    \"os\"\n"
-                + ")\n"
-                + "func main() {\n"
-                + "    var value interface{}\n"
-                + "    if err := json.Unmarshal([]byte(os.Args[2]), &value); err != nil {\n"
-                + "        panic(err)\n"
-                + "    }\n"
-                + "    output, err := json.Marshal(value)\n"
-                + "    if err != nil {\n"
-                + "        panic(err)\n"
-                + "    }\n"
-                + "    fmt.Print(string(output))\n"
-                + "}";
-        String pythonCode = "import json, sys\n"
-                + "value = json.loads(sys.argv[2])\n"
-                + "sys.stdout.write(json.dumps(value, ensure_ascii=False, separators=(',', ':')))";
-        String javascriptCode = "const value = JSON.parse(process.argv[3]);\n"
-                + "process.stdout.write(JSON.stringify(value));";
-        return Stream.of(
-                Arguments.of("go", goCode),
-                Arguments.of("python", pythonCode),
-                Arguments.of("javascript", javascriptCode)
-        );
-    }
-
-    /**
-     * 提供五种语言的编译错误程序。
-     *
-     * @return 编译错误程序参数
-     */
-    private static Stream<Arguments> compileErrorPrograms() {
-        return Stream.of(
-                Arguments.of("java", "public class Main { public static void main(String[] args) { int value = } }",
-                        "Main.java"),
-                Arguments.of("cpp", "int main() { return }", "main.cpp"),
-                Arguments.of("go", "package main\nfunc main( {", "main.go"),
-                Arguments.of("python", "def main(:\n    pass", "main.py"),
-                Arguments.of("javascript", "const value = ;", "main.js")
-        );
-    }
-
-    /**
-     * 提供五种语言的运行错误程序。
-     *
-     * @return 运行错误程序参数
-     */
-    private static Stream<Arguments> runtimeErrorPrograms() {
-        return Stream.of(
-                Arguments.of("java", "public class Main { public static void main(String[] args) { "
-                        + "throw new RuntimeException(\"boom\"); } }"),
-                Arguments.of("cpp", "int main() { return 7; }"),
-                Arguments.of("go", "package main\nfunc main() { panic(\"boom\") }"),
-                Arguments.of("python", "raise RuntimeError('boom')"),
-                Arguments.of("javascript", "throw new Error('boom');")
-        );
     }
 }

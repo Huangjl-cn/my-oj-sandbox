@@ -3,11 +3,7 @@ package com.hjl.ojcodesandbox.sandbox.dispatch;
 import com.hjl.ojcodesandbox.CodeSandbox;
 import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
 import com.hjl.ojcodesandbox.sandbox.docker.DockerExecutionEngine;
-import com.hjl.ojcodesandbox.sandbox.language.DockerCppCodeSandbox;
-import com.hjl.ojcodesandbox.sandbox.language.DockerGoCodeSandbox;
-import com.hjl.ojcodesandbox.sandbox.language.DockerJavaCodeSandbox;
-import com.hjl.ojcodesandbox.sandbox.language.DockerJavaScriptCodeSandbox;
-import com.hjl.ojcodesandbox.sandbox.language.DockerPythonCodeSandbox;
+import com.hjl.ojcodesandbox.sandbox.language.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 

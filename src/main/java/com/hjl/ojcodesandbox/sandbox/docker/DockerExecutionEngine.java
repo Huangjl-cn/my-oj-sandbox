@@ -136,7 +136,7 @@ public class DockerExecutionEngine {
                 outputs.add(runResult.getStandardOutput());
 
                 if (runResult.isTimedOut()) {
-                    return runtimeFailure(outputs, "Execution timed out after " + RUN_TIMEOUT_MILLIS + " ms",
+                    return runtimeFailure(outputs, runTimeoutMessage(),
                             languageDefinition, maxMemoryKb, maxTimeMillis);
                 }
                 if (runResult.isOutputTruncated()) {
@@ -437,7 +437,18 @@ public class DockerExecutionEngine {
     }
 
     /**
-     * 优先选择标准错误，其次选择标准输出作为失败诊断。
+     * 生成运行超时的诊断文案，提示用户区分死循环与栈溢出等边界情况。
+     *
+     * @return 超时诊断文本
+     */
+    private String runTimeoutMessage() {
+        return "Execution timed out after " + RUN_TIMEOUT_MILLIS
+                + " ms (possible infinite loop or recursion)";
+    }
+
+    /**
+     * 优先选择标准错误，其次选择标准输出作为失败诊断；
+     * 两者均为空时根据退出码生成可读诊断。
      *
      * @param result Docker 命令结果
      * @return 可用于错误响应的原始诊断
@@ -449,7 +460,7 @@ public class DockerExecutionEngine {
         if (StrUtil.isNotBlank(result.getStandardOutput())) {
             return result.getStandardOutput();
         }
-        return "Process exited with code " + result.getExitCode();
+        return DiagnosticSanitizer.exitCodeDiagnostic(result.getExitCode(), result.getMemoryKb());
     }
 
     /**

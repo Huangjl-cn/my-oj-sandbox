@@ -1,11 +1,7 @@
 package com.hjl.ojcodesandbox.sandbox.dispatch;
 
 import com.hjl.ojcodesandbox.CodeSandbox;
-import com.hjl.ojcodesandbox.model.ExecuteCaseRequest;
-import com.hjl.ojcodesandbox.model.ExecuteCodeRequest;
-import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
-import com.hjl.ojcodesandbox.model.ExecuteStatusEnum;
-import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
+import com.hjl.ojcodesandbox.model.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -13,9 +9,7 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class DockerCodeSandboxDispatcherTest {
 

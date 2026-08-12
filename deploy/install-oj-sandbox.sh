@@ -295,13 +295,15 @@ warn_about_missing_images() {
 
 verify_service_access() {
     if command -v runuser >/dev/null 2>&1; then
-        runuser -u "${SERVICE_USER}" -- test -r "${CURRENT_RELEASE_LINK}/oj-code-sandbox.jar" \
+        # Ubuntu 26.04 ships the Rust-based coreutils whose /usr/bin/test
+        # mishandles -r/-w on unix sockets; use the shell builtin via sh -c.
+        runuser -u "${SERVICE_USER}" -- sh -c "test -r \"${CURRENT_RELEASE_LINK}/oj-code-sandbox.jar\"" \
             || fail "Service user cannot read the installed JAR"
-        runuser -u "${SERVICE_USER}" -- test -x "${CURRENT_RELEASE_LINK}/runtime/java8/bin/java" \
+        runuser -u "${SERVICE_USER}" -- sh -c "test -x \"${CURRENT_RELEASE_LINK}/runtime/java8/bin/java\"" \
             || fail "Service user cannot execute the bundled Java runtime"
-        runuser -u "${SERVICE_USER}" -- test -r /var/run/docker.sock \
+        runuser -u "${SERVICE_USER}" -- sh -c 'test -r /var/run/docker.sock' \
             || fail "Service user cannot read /var/run/docker.sock after joining the Docker group"
-        runuser -u "${SERVICE_USER}" -- test -w /var/run/docker.sock \
+        runuser -u "${SERVICE_USER}" -- sh -c 'test -w /var/run/docker.sock' \
             || fail "Service user cannot write /var/run/docker.sock after joining the Docker group"
     fi
 }
