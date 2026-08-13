@@ -1,0 +1,7 @@
+# 开发环境配置（本地联调使用，与 oj-backend application-dev.yml 的开发密钥对配套）
+codesandbox:
+  auth:
+    enabled: true
+    key-id: sandbox-key-dev-2026
+    public-key: MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEujoSoLNpNzIcqf6diJhgPPccfqroPqBFTwxm51jt9cb+JmO8/LLsTgUqRkcLA7Xf3SEpl3TUrzYNdv7K0Nv07w==
+    clock-skew: 300

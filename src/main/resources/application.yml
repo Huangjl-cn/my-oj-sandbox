@@ -5,6 +5,11 @@ server:
     include-exception: false
     include-message: never
 
+spring:
+  # 默认使用开发配置（服务器由 systemd 环境变量 SPRING_PROFILES_ACTIVE=prod 覆盖）
+  profiles:
+    active: dev
+
 #spring:
 #  datasource:
 #    password: 123456

@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,11 +29,9 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @EnabledIfEnvironmentVariable(named = "RUN_DOCKER_TESTS", matches = "true")
+// 真容器集成测试聚焦执行链路，鉴权行为由 SandboxAuthFilterTest 覆盖
+@TestPropertySource(properties = "codesandbox.auth.enabled=false")
 class DockerSandboxIntegrationTest {
-
-    private static final String AUTH_HEADER = "auth";
-
-    private static final String AUTH_SECRET = "secretKey";
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -551,7 +550,6 @@ class DockerSandboxIntegrationTest {
                 .build();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set(AUTH_HEADER, AUTH_SECRET);
 
         ResponseEntity<String> response = restTemplate.postForEntity(
                 "/executeCode",

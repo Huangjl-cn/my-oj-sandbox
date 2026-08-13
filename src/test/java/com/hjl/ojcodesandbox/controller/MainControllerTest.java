@@ -5,7 +5,6 @@ import com.hjl.ojcodesandbox.model.ExecuteCodeResponse;
 import com.hjl.ojcodesandbox.model.JudgeInfo;
 import com.hjl.ojcodesandbox.model.QuestionSubmitLanguageEnum;
 import com.hjl.ojcodesandbox.sandbox.dispatch.DockerCodeSandboxDispatcher;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
@@ -13,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Arrays;
@@ -24,6 +24,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(MainController.class)
+// 鉴权由 SandboxAuthFilter 负责（见 SandboxAuthFilterTest），本测试聚焦 Controller 行为
+@TestPropertySource(properties = "codesandbox.auth.enabled=false")
 class MainControllerTest {
 
     @Autowired
@@ -44,7 +46,6 @@ class MainControllerTest {
         when(dockerCodeSandboxDispatcher.executeCode(any())).thenReturn(response);
 
         mockMvc.perform(post("/executeCode")
-                        .header("auth", "secretKey")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cases\":["
                                 + "{\"args\":[\"hello world\",\"\"]},"
@@ -65,38 +66,5 @@ class MainControllerTest {
         assertEquals(Arrays.asList("[1,2,3]", "4"), request.getCases().get(1).getArgs());
         assertEquals(Arrays.asList("[[1,2],[3,4]]"), request.getCases().get(2).getArgs());
         assertEquals(Arrays.asList("& calc", "$(command)"), request.getCases().get(3).getArgs());
-    }
-
-    @Test
-    void rejectsRequestWithoutAuthHeader() throws Exception {
-        mockMvc.perform(post("/executeCode")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cases\":[],\"code\":\"source\",\"language\":\"java\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.message").value("Forbidden"))
-                .andExpect(jsonPath("$.trace").doesNotExist())
-                .andExpect(jsonPath("$.exception").doesNotExist())
-                .andExpect(jsonPath("$.path").doesNotExist());
-
-        verifyNoInteractions(dockerCodeSandboxDispatcher);
-    }
-
-    @Test
-    void rejectsWrongAuthHeaderWithoutInternalDetails() throws Exception {
-        mockMvc.perform(post("/executeCode")
-                        .header("auth", "wrongKey")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cases\":[],\"code\":\"source\",\"language\":\"java\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.message").value("Forbidden"))
-                .andExpect(jsonPath("$.trace").doesNotExist())
-                .andExpect(jsonPath("$.exception").doesNotExist())
-                .andExpect(jsonPath("$.path").doesNotExist());
-
-        verifyNoInteractions(dockerCodeSandboxDispatcher);
     }
 }
