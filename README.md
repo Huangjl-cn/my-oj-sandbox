@@ -61,6 +61,8 @@ flowchart LR
 
 **前置条件**：JDK 8、Maven 3.6+、可用的 Docker daemon（可设置 `DOCKER_HOST` 指向远程 Docker）
 
+> **Windows 用户注意**：本项目基于 Docker 执行沙箱，Windows 系统下必须在 **WSL2** 环境中启动（原生 Windows 无法直接连接 Docker daemon，会报错）。推荐在 IntelliJ IDEA 中使用**远程开发（Remote Development）**功能连接 WSL2 进行开发调试，本地仅保留 IDE 客户端。
+
 ```bash
 # 1. 预加载沙箱镜像（首次执行必需）
 docker pull python:3.14-alpine
