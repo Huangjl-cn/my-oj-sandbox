@@ -221,7 +221,5 @@ Segmentation fault (exit 139)
 
 ## 6. 验证与测试
 
-- 单元测试：`DiagnosticSanitizerTest`（17 个用例）覆盖逐条规则。
-- 端到端回归：`DiagnosticRealScenarioTest`（8 个用例）内嵌真实容器捕获的完整 stderr
-  （与沙箱一致的镜像/命令/512MB 限制），断言关键行保留、噪音剔除。
-- `mvn clean test`：46 个测试通过（1 个 Docker 集成测试按配置跳过）。
+- 单元测试：`DiagnosticSanitizerTest` 覆盖逐条规则。多数输入取自真实容器捕获的完整 stderr
+  （与沙箱一致的镜像、命令和 512MB 限制），断言关键行保留、噪音剔除。

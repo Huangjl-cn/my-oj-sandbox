@@ -2,6 +2,8 @@
 
 本项目固定官方镜像的完整版本和多架构清单 digest，避免同一标签在不同时间指向不同内容。Java 与 C++ 使用本地派生镜像；Go、Python 和 JavaScript 使用官方镜像，并重新标记为代码当前引用的名称。完成下面的准备后，不需要修改应用代码。
 
+通常直接运行 `bash deploy/prepare-sandbox-images.sh`（开发机，需要能访问 Docker）或部署包里的同名脚本（服务器）即可，它会执行下面的全部步骤并跳过已存在的镜像。下文是脚本做的事情和手动命令。
+
 ## 运行时镜像名称
 
 | 语言 | 代码使用的镜像名称 | 固定来源 |
@@ -35,11 +37,11 @@ docker pull gcc:15.3.0-trixie@sha256:486d5379b2d679f18bca957901d628952aa0ebc2d82
 ```bash
 docker build \
   --tag oj-code-sandbox/eclipse-temurin-gson:25-jdk-alpine-2.14.0 \
-  docs/docker/java-gson
+  deploy/docker/java-gson
 
 docker build \
   --tag oj-code-sandbox/gcc-nlohmann-json:15-3.12.0 \
-  docs/docker/cpp-nlohmann-json
+  deploy/docker/cpp-nlohmann-json
 ```
 
 Java 镜像将 Gson 安装到 `/opt/libs/gson.jar`。C++ 镜像将 nlohmann/json 安装到 `/usr/local/include/nlohmann/json.hpp`，并在构建阶段校验 `json.hpp` 的 SHA-256。运行用户代码时不需要联网下载依赖。
@@ -86,11 +88,21 @@ docker image inspect \
 RUN_DOCKER_TESTS=true mvn -Dtest=DockerSandboxIntegrationTest test
 ```
 
-该测试通过真实 `/executeCode` 请求验证五种语言，并对 Java、C++、Go、Python 和 JavaScript 分别覆盖整数数组、二维整数数组、字符串数组和字符串 JSON 输入输出。
+该测试验证五种语言的真实执行，并对 Java、C++、Go、Python 和 JavaScript 分别覆盖整数数组、二维整数数组、字符串数组和字符串 JSON 输入输出。
 
 ## 更新规则
 
-完整标签仍可能被上游重新发布，digest 才是最终约束。升级任一官方镜像时，应同时更新 Dockerfile、本文中的完整标签和 digest，然后重新构建并运行集成测试。不要把一个版本标签与另一个版本的 digest 混用。
+完整标签仍可能被上游重新发布，digest 才是最终约束。不要把一个版本标签与另一个版本的 digest 混用。
+
+镜像名称和版本写在多处，升级或改名任一镜像时要一起修改，然后重新构建并运行集成测试：
+
+- `deploy/docker/*/Dockerfile`（Java、C++ 的基础镜像和依赖版本）
+- `deploy/prepare-sandbox-images.sh`（镜像名称、完整标签和 digest）
+- `deploy/install-oj-sandbox.sh`（安装后检查的镜像名称）
+- `src/main/java/.../sandbox/language/Docker*CodeSandbox.java`（代码使用的镜像名称）
+- `src/test/java/.../integration/DockerSandboxIntegrationTest.java`（直接引用的镜像名称）
+- 本文和 README 的镜像表
+- my-oj-backend 的 `QuestionSubmitLanguageEnum`（前端展示的语言版本，如 Java 25、Go 1.25）
 
 参考资料：
 
