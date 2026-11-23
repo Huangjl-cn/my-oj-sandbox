@@ -1,11 +1,6 @@
 package com.hjl.ojcodesandbox.model;
 
 import lombok.Getter;
-import org.apache.commons.lang3.ObjectUtils;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 题目提交语言业务类型枚举
@@ -29,17 +24,10 @@ public enum QuestionSubmitLanguageEnum {
     }
 
     /**
-     * 获取值列表
-     */
-    public static List<String> getValues() {
-        return Arrays.stream(values()).map(item -> item.value).collect(Collectors.toList());
-    }
-
-    /**
      * 根据 value 获取枚举
      */
     public static QuestionSubmitLanguageEnum getEnumByValue(String value) {
-        if (ObjectUtils.isEmpty(value)) {
+        if (value == null || value.isEmpty()) {
             return null;
         }
         for (QuestionSubmitLanguageEnum anEnum : QuestionSubmitLanguageEnum.values()) {

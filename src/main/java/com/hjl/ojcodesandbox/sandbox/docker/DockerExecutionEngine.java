@@ -50,8 +50,8 @@ public class DockerExecutionEngine {
     private static final long CPU_LIMIT = 1_000_000_000L;
 
     /**
-     * 编译容器 CPU 上限（2 核）。编译是短时高 CPU 需求的任务，且受 COMPILE_TIMEOUT_MILLIS 保护，
-     * 放开到宿主机核数可显著加快 Go 等并行编译；运行容器保持 CPU_LIMIT（1 核）防止恶意代码吃满 CPU。
+     * 编译容器 CPU 上限（2 核，按当前 2 vCPU 的服务器设定，换机器时按核数调整）。编译是短时高 CPU 需求的任务，
+     * 且受 COMPILE_TIMEOUT_MILLIS 保护，多给 CPU 能显著加快 Go 等并行编译；运行容器保持 CPU_LIMIT（1 核）防止恶意代码吃满 CPU。
      */
     private static final long COMPILE_CPU_LIMIT = 2_000_000_000L;
 
