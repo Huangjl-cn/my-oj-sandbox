@@ -62,8 +62,11 @@ class SandboxResponseFactoryTest {
         assertEquals("System Error\nDocker unavailable", systemResponse.getJudgeInfo().getMessage());
     }
 
+    /**
+     * 超时由执行引擎判定为运行错误，工厂只负责把诊断、最大耗时和内存原样带到响应里。
+     */
     @Test
-    void mapsTimeoutAsRuntimeError() {
+    void passesDiagnosticTimeAndMemoryThrough() {
         SandboxExecutionResult result = SandboxExecutionResult.failure(
                 SandboxFailureType.RUNTIME_ERROR,
                 Collections.singletonList(""),
@@ -77,5 +80,6 @@ class SandboxResponseFactoryTest {
         assertEquals(ExecuteStatusEnum.RUNTIME_ERROR.getValue(), response.getStatus());
         assertEquals("Runtime Error\nExecution timed out after 8000 ms", response.getJudgeInfo().getMessage());
         assertEquals(8000L, response.getJudgeInfo().getTime());
+        assertEquals(4096L, response.getJudgeInfo().getMemory());
     }
 }

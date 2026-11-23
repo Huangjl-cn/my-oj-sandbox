@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * SandboxAuthFilter 验签逻辑测试。
  *
- * <p>测试密钥对与 oj-backend application-dev.yml 的开发测试密钥对一致
- * （公钥同沙箱 application.yml 的 codesandbox.auth.public-key），
+ * <p>使用开发专用密钥对：私钥与 my-oj-backend application-dev.yml 相同，公钥与本仓库 application-dev.yml 相同。
+ * 用固定密钥对而不是临时生成，是为了同时验证两个仓库的开发配置确实配对；该私钥已公开，生产不信任。
  * 签名构造逻辑与后端 SandboxAuthSigner 的规范化字符串协议严格一致。
  */
 class SandboxAuthFilterTest {
@@ -29,7 +29,7 @@ class SandboxAuthFilterTest {
     private static final String KEY_ID = "sandbox-key-dev-2026";
 
     /**
-     * 与后端 application-dev.yml 配套的开发私钥（测试用途）。
+     * 开发专用私钥（已公开，与后端 application-dev.yml 相同）。
      */
     private static final String TEST_PRIVATE_KEY_BASE64 =
             "MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCA3g4tm7fJYlnSAbBjD7pU8exOMaXToOSfNkCuMzfmfDQ==";

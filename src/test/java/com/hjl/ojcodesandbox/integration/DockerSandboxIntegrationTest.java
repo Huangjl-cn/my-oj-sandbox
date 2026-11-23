@@ -26,12 +26,13 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 在 Linux Docker 环境中验证五种语言的真实 HTTP 执行链路。
+ * 在 Linux Docker 环境中验证五种语言的真实执行：多数用例经 HTTP 接口调用，少数直接调用执行引擎。
+ * 默认跳过，需要可用的 Docker 和全部语言镜像，运行方式：RUN_DOCKER_TESTS=true mvn test -Dtest=DockerSandboxIntegrationTest。
+ * 鉴权在本测试中关闭，验签行为由 SandboxAuthFilterTest 覆盖。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("dev")
 @EnabledIfEnvironmentVariable(named = "RUN_DOCKER_TESTS", matches = "true")
-// 真容器集成测试聚焦执行链路，鉴权行为由 SandboxAuthFilterTest 覆盖
 @TestPropertySource(properties = "codesandbox.auth.enabled=false")
 class DockerSandboxIntegrationTest {
 
