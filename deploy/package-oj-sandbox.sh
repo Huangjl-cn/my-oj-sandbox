@@ -109,9 +109,9 @@ main() {
     install -m 0755 "${SCRIPT_DIRECTORY}/install-oj-sandbox.sh" "${BUNDLE_DIRECTORY}/install.sh"
     install -m 0755 "${SCRIPT_DIRECTORY}/prepare-sandbox-images.sh" \
         "${BUNDLE_DIRECTORY}/prepare-sandbox-images.sh"
-    install -m 0644 "${REPOSITORY_DIRECTORY}/docs/docker/java-gson/Dockerfile" \
+    install -m 0644 "${SCRIPT_DIRECTORY}/docker/java-gson/Dockerfile" \
         "${BUNDLE_DIRECTORY}/docker/java-gson/Dockerfile"
-    install -m 0644 "${REPOSITORY_DIRECTORY}/docs/docker/cpp-nlohmann-json/Dockerfile" \
+    install -m 0644 "${SCRIPT_DIRECTORY}/docker/cpp-nlohmann-json/Dockerfile" \
         "${BUNDLE_DIRECTORY}/docker/cpp-nlohmann-json/Dockerfile"
     tar -xzf "${JAVA_ARCHIVE_PATH}" -C "${BUNDLE_DIRECTORY}/runtime/java8" --strip-components=1
     [[ -x "${BUNDLE_DIRECTORY}/runtime/java8/bin/java" ]] \
