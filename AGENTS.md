@@ -8,7 +8,7 @@ This is a Java 8 Spring Boot 2.7 Maven service. Production code lives under `src
 
 - `mvn clean test` compiles the project and runs the JUnit 5 test suite.
 - `mvn clean package` builds the executable JAR in `target/` and runs tests.
-- `mvn spring-boot:run` starts the API locally on port `8100`.
+- `mvn spring-boot:run` starts the API locally on `127.0.0.1:8100` with the `dev` profile (activated by the Maven plugin; `application.yml` sets no default profile, so IDE runs need `-Dspring.profiles.active=dev`).
 - `docker pull <image>` preloads a required sandbox image. Language implementations declare versioned Java, GCC, Go, Python, and Node.js images under `sandbox/language/`.
 
 Use JDK 8 and a reachable Docker daemon for sandbox execution. Set `DOCKER_HOST` when the default local Docker connection is unsuitable.

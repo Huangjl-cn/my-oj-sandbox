@@ -71,9 +71,12 @@ docker pull node:24-alpine
 docker pull oj-code-sandbox/eclipse-temurin-gson:25-jdk-alpine-2.14.0
 docker pull oj-code-sandbox/gcc-nlohmann-json:15-3.12.0
 
-# 2. 启动服务（默认端口 8100）
+# 2. 启动服务（自动激活 dev profile，监听 127.0.0.1:8100）
 mvn spring-boot:run
 ```
+
+- **在 IDE 里运行**：加 VM 参数 `-Dspring.profiles.active=dev`。`application.yml` 不设默认 profile，不指定环境时服务不会启动。
+- **开发配置已内置开发专用的签名公钥**，与 [my-oj-backend](https://github.com/Huangjl-cn/my-oj-backend) 的 dev 私钥配对，不需要额外配置。这对开发密钥是公开的，所以 dev 默认只监听本机；后端在另一台机器上联调时设 `SERVER_ADDRESS=0.0.0.0`，并确保只在可信网络内访问。
 
 ### 调用示例
 
