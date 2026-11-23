@@ -1,6 +1,11 @@
-# 开发环境配置（本地联调使用，与 oj-backend application-dev.yml 的开发密钥对配套）
+# 开发环境配置（本地联调使用，与 my-oj-backend application-dev.yml 的开发密钥对配套）
+server:
+  # 开发服务默认只监听本机：开发密钥是公开的，暴露到网络上等于没有鉴权。
+  # 后端在另一台机器上联调时设 SERVER_ADDRESS=0.0.0.0，并确保只在可信网络内访问
+  address: ${SERVER_ADDRESS:127.0.0.1}
 codesandbox:
   auth:
+    # 【开发专用测试密钥】key-id 与公钥对应的私钥已公开，只能用于本机开发；生产使用另一对密钥
     enabled: true
     key-id: sandbox-key-dev-2026
     public-key: MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEujoSoLNpNzIcqf6diJhgPPccfqroPqBFTwxm51jt9cb+JmO8/LLsTgUqRkcLA7Xf3SEpl3TUrzYNdv7K0Nv07w==

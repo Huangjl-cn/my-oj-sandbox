@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
 import java.util.Arrays;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 在 Linux Docker 环境中验证五种语言的真实 HTTP 执行链路。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("dev")
 @EnabledIfEnvironmentVariable(named = "RUN_DOCKER_TESTS", matches = "true")
 // 真容器集成测试聚焦执行链路，鉴权行为由 SandboxAuthFilterTest 覆盖
 @TestPropertySource(properties = "codesandbox.auth.enabled=false")
