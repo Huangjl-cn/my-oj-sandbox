@@ -1,0 +1,43 @@
+# 每次 push 和提 PR 都跑一遍：编译 + 测试。
+# 需要真实 Docker 的集成测试默认跳过（RUN_DOCKER_TESTS 不设），沙箱的部署仍按 README 手动进行。
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 拉代码
+        uses: actions/checkout@v7
+
+      - name: 安装 JDK 8
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      - name: 编译和测试
+        run: mvn -B -ntp verify
+
+      - name: 测试失败时保存测试报告
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
